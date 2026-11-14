@@ -1,4 +1,4 @@
-# Known issues: deterministic extraction
+# Known issues
 
 Status after step 3b (section splitting), measured on all 75 CUAD contracts.
 Figures come from `runs/extraction_metrics.csv` (baseline: `runs/extraction_metrics_v1.csv`);
@@ -52,7 +52,7 @@ back to `12.1` shows only `12.1` and its children, not the siblings `12.2`, `12.
 Better: resolve to a virtual parent (all `12.*` clauses), or link to the H-clause holding a
 roman `ARTICLE XII` heading once roman numerals are supported.
 
-## 4. Very long clauses (sub-chunking needed before step 5)
+## 4. Very long clauses (handled in step 5 by sub-chunking)
 
 59 of 4,067 clauses exceed 8,000 chars and 17 exceed 20,000. The longest:
 
@@ -69,9 +69,40 @@ embedding-model input limits and would produce one diluted vector each. Step 5 n
 sub-chunking (e.g. by paragraph, ~1-2k chars with overlap) where every chunk keeps the
 provenance of its clause (doc_id, section, uid, char offsets). The graph stays at clause level.
 
+Step 5: done. Clauses are split into `(:Chunk)` nodes of at most 1,500 tokens at sentence
+boundaries (src/clause_graph/chunking.py, ADR 0003). The clauses themselves are still
+oversized (exhibits inside a section), which matters for `get_clause_context` output size.
+
 ## 5. Minor: ALL-CAPS heading false positives
 
 In a sample of 30 detected ALL-CAPS headings about 25 were real boundaries. The rest are mostly
 signature-block company names (`FEDERATED INVESTMENT MANAGEMENT COMPANY` followed by `By:`)
 and table rows. They create small extra clauses at the end of a contract and rarely cut a
 clause mid-sentence; repeated page headers (>2 occurrences) are already filtered.
+
+## 6. Scale: embedding on CPU
+
+Measured on this machine (i7-1165G7, 4 cores, Ollama CPU, bge-m3), `runs/embedding_metrics.json`:
+
+| Run | Settings | Chunks | Time | Chunks/h | Tokens/s |
+|---|---|---|---|---|---|
+| 2026-11-14 17:12 | default num_batch | 552 | 45 min | ~740 | ~50-60 |
+| 2026-11-14 19:46 | num_batch = num_ctx = 4096 | 3,066 | 2 h 22 min | 1,296 | 87 |
+
+The whole corpus (75 contracts, 3,755 chunks, 956k real tokens) takes ~3 h on CPU.
+Chunks/h depends on chunk length; tokens/s is the stable unit.
+
+Extrapolated: 10k contracts ≈ 500k chunks ≈ 127M tokens ≈ **400-660 h on CPU** (660 h at
+~750 chunks/h, ~400 h at the tuned 87 tokens/s). Production therefore needs a GPU (EU-hosted
+or on-prem, since contract text must not leave a controlled environment, ADR 0003) or
+overnight/incremental batching: embed_chunks.py is resumable and only embeds chunks whose
+`embed_hash` differs from `text_hash`, so a daily run only pays for new or changed contracts.
+
+## 7. Embedding: failed chunks and oversized v1 chunks
+
+- Failed chunks: **0** (final run, 3,755 of 3,755 chunks embedded; `chunks_failed: []`).
+- 23 chunks made by chunker v1 (estimated tokens) exceed the 1,500-token target in real
+  bge-m3 tokens; max 2,068 (BONTON Agency Agreement H6#2, a dense table). All are far below
+  bge-m3's 8,192-token limit and were embedded whole (`truncate: false`, num_ctx 4096), so
+  they are kept; re-embedding them would cost hours for no measured retrieval gain.
+  Contracts loaded from now on use chunker v2 (real tokens). See ADR 0003.

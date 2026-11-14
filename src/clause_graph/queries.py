@@ -14,10 +14,19 @@ from typing import Any
 
 from neo4j import Driver, RoutingControl
 
+from clause_graph import embeddings
+from clause_graph.embeddings import EmbeddingError
+
 DEFAULT_MAX_CHARS = 1500
 DEFAULT_DEFINITION_CHARS = 600
 MAX_LIMIT = 50
 MAX_RELATED = 20  # cap on each list in get_clause_context
+VECTOR_INDEX = "chunk_embedding"
+GLOBAL_OVERFETCH = 5  # chunks fetched per requested clause in cross-contract search
+DEFAULT_SEEDS = 5
+DEFAULT_CONTEXT_ITEMS = 25
+DEFAULT_CONTEXT_CHARS = 1200
+MAX_REASONS = 5
 SUGGESTIONS = 5
 HUB_NOTE = (
     "Hub terms (defined terms used in more than 40% of the contract's clauses, "
@@ -397,4 +406,318 @@ def get_clause_context(
             "direction 'outgoing' = this clause cites that one; "
             "'incoming' = that clause cites this one."
         ],
+    }
+
+
+# ---------------------------------------------------------------- semantic search
+
+
+def _cosine(neo4j_score: float) -> float:
+    """Neo4j reports cosine similarity rescaled to (1 + cos) / 2; return plain cosine."""
+    return round(2 * neo4j_score - 1, 3)
+
+
+def _embed_query(query: str) -> list[float]:
+    try:
+        return embeddings.embed_query(query)
+    except EmbeddingError as e:
+        raise QueryError(str(e)) from e
+
+
+def _score_clauses_in_doc(driver: Driver, doc: str, vector: list[float]) -> list[dict]:
+    """Every embedded clause of one contract with its best chunk, best score first.
+    Exact (brute force over ~100 chunks), so no approximate-index misses."""
+    rows = _read(
+        driver,
+        """
+        MATCH (ch:Chunk {doc_id: $doc}) WHERE ch.embedding IS NOT NULL
+        WITH ch, vector.similarity.cosine(ch.embedding, $vec) AS score
+        ORDER BY score DESC
+        MATCH (ch)-[:CHUNK_OF]->(c:Clause)
+        WITH c, collect({score: score, idx: ch.idx, start: ch.start}) AS hits
+        RETURN c.section AS section, c.uid AS uid, c.text AS text, c.position AS position,
+               c.doc_id AS doc_id, hits[0] AS best, size(hits) AS chunks_matched
+        ORDER BY best.score DESC
+        """,
+        doc=doc,
+        vec=vector,
+    )
+    if not rows:
+        raise QueryError(
+            f"No embedded chunks for {doc} yet. Run: uv run scripts/embed_chunks.py --doc '{doc}'"
+        )
+    return rows
+
+
+def _embedding_coverage(driver: Driver, doc: str | None) -> dict:
+    row = _read(
+        driver,
+        """
+        MATCH (ch:Chunk) WHERE $doc IS NULL OR ch.doc_id = $doc
+        RETURN count(ch) AS chunks, count(ch.embedding) AS embedded
+        """,
+        doc=doc,
+    )[0]
+    return row
+
+
+def _search_hit(r: dict, max_chars: int) -> dict:
+    return {
+        **provenance(r["doc_id"], r["section"], r["uid"]),
+        "score": _cosine(r["best"]["score"]),
+        "best_chunk": r["best"]["idx"],
+        **bounded_text(r["text"], max_chars, r["best"]["start"]),
+    }
+
+
+def search_clauses(
+    driver: Driver,
+    query: str,
+    doc_id: str | None = None,
+    k: int = 10,
+    max_chars: int = DEFAULT_MAX_CHARS,
+) -> dict:
+    q = (query or "").strip()
+    if not q:
+        raise QueryError("query is empty.")
+    k = max(1, min(int(k), MAX_LIMIT))
+    doc = resolve_doc_id(driver, doc_id) if doc_id else None
+    vector = _embed_query(q)
+
+    if doc:
+        rows = _score_clauses_in_doc(driver, doc, vector)[:k]
+    else:
+        # Approximate kNN over all chunks, then best chunk per clause.
+        rows = _read(
+            driver,
+            """
+            CALL db.index.vector.queryNodes($index, $n, $vec) YIELD node AS ch, score
+            MATCH (ch)-[:CHUNK_OF]->(c:Clause)
+            WITH c, ch, score ORDER BY score DESC
+            WITH c, collect({score: score, idx: ch.idx, start: ch.start}) AS hits
+            RETURN c.section AS section, c.uid AS uid, c.text AS text, c.position AS position,
+                   c.doc_id AS doc_id, hits[0] AS best
+            ORDER BY best.score DESC LIMIT $k
+            """,
+            index=VECTOR_INDEX,
+            n=k * GLOBAL_OVERFETCH,
+            vec=vector,
+            k=k,
+        )
+
+    coverage = _embedding_coverage(driver, doc)
+    notes = [
+        "score = cosine similarity of the best-matching chunk (bge-m3, local). "
+        "Semantic, not keyword: use find_clauses for exact wording."
+    ]
+    if coverage["embedded"] < coverage["chunks"]:
+        notes.append(
+            f"Only {coverage['embedded']} of {coverage['chunks']} chunks are embedded; "
+            "results may be incomplete."
+        )
+    return {
+        "query": q,
+        "doc_id": doc,
+        "returned": len(rows),
+        "clauses": [_search_hit(r, max_chars) for r in rows],
+        "notes": notes,
+    }
+
+
+# ---------------------------------------------------------------- GraphRAG context
+
+# Expansion priority when the item budget is exceeded (lower = kept first).
+TIER_SEED, TIER_DIRECT, TIER_STRUCTURE, TIER_CITING, TIER_SIBLING = range(5)
+
+EXPANSIONS = [
+    (
+        TIER_DIRECT,
+        "definition",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})-[:USES_TERM]->(t:DefinedTerm)<-[:DEFINES]-(x:Clause)
+        RETURN seed, x.uid AS uid, t.name AS term, null AS via
+        """,
+        "defines '{term}' used by {seed}",
+    ),
+    (
+        TIER_DIRECT,
+        "reference_out",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})-[:REFERENCES]->(x:Clause)
+        RETURN seed, x.uid AS uid, null AS term, null AS via
+        """,
+        "referenced by {seed}",
+    ),
+    (
+        TIER_DIRECT,
+        "subsection_of_reference",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})-[:REFERENCES]->(o:Clause)<-[:SUBSECTION_OF*1..3]-(x:Clause)
+        RETURN seed, x.uid AS uid, null AS term, o.section AS via
+        """,
+        "subsection of {via}, which {seed} references",
+    ),
+    (
+        TIER_STRUCTURE,
+        "subsection",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})<-[:SUBSECTION_OF*1..3]-(x:Clause)
+        RETURN seed, x.uid AS uid, null AS term, null AS via
+        """,
+        "subsection of {seed}",
+    ),
+    (
+        TIER_STRUCTURE,
+        "parent",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})-[:SUBSECTION_OF]->(x:Clause)
+        RETURN seed, x.uid AS uid, null AS term, null AS via
+        """,
+        "parent of {seed}",
+    ),
+    (
+        TIER_CITING,
+        "reference_in",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})<-[:REFERENCES]-(x:Clause)
+        RETURN seed, x.uid AS uid, null AS term, null AS via
+        """,
+        "references {seed}",
+    ),
+    (
+        TIER_SIBLING,
+        "sibling",
+        """
+        UNWIND $seeds AS seed
+        MATCH (s:Clause {uid: seed})-[:SUBSECTION_OF]->(p:Clause)<-[:SUBSECTION_OF]-(x:Clause)
+        WHERE x <> s
+        RETURN seed, x.uid AS uid, null AS term, p.section AS via
+        """,
+        "sibling of {seed} (both under {via})",
+    ),
+]
+
+
+def assemble_context(
+    driver: Driver,
+    query: str,
+    doc_id: str,
+    k: int = DEFAULT_SEEDS,
+    max_items: int = DEFAULT_CONTEXT_ITEMS,
+    max_chars: int = DEFAULT_CONTEXT_CHARS,
+) -> dict:
+    """Vector search for seed clauses, then one graph hop around each seed
+    (definitions, references both ways, subsections, parent, siblings).
+    Every item says why it is included; output is bounded by max_items."""
+    q = (query or "").strip()
+    if not q:
+        raise QueryError("query is empty.")
+    k = max(1, min(int(k), MAX_LIMIT))
+    max_items = max(k, min(int(max_items), MAX_LIMIT))
+    doc = resolve_doc_id(driver, doc_id)
+    scored = _score_clauses_in_doc(driver, doc, _embed_query(q))
+    score_of = {r["uid"]: r for r in scored}
+    seeds = scored[:k]
+    section_of = {r["uid"]: r["section"] for r in scored}
+
+    # uid -> {tier, seed_rank, reasons, terms}
+    items: dict[str, dict] = {}
+
+    def add(uid: str, tier: int, seed_rank: int, reason: str, kind: str, term: str | None):
+        item = items.setdefault(
+            uid, {"tier": tier, "seed_rank": seed_rank, "why": [], "kinds": set(), "terms": []}
+        )
+        item["tier"] = min(item["tier"], tier)
+        item["seed_rank"] = min(item["seed_rank"], seed_rank)
+        if reason not in item["why"]:
+            item["why"].append(reason)
+        item["kinds"].add(kind)
+        if term and term not in item["terms"]:
+            item["terms"].append(term)
+
+    rank_of = {}
+    for rank, r in enumerate(seeds):
+        rank_of[r["uid"]] = rank
+        add(
+            r["uid"], TIER_SEED, rank,
+            f"vector match {_cosine(r['best']['score'])} (rank {rank + 1})", "seed", None,
+        )
+
+    seed_uids = [r["uid"] for r in seeds]
+    for tier, kind, cypher, template in EXPANSIONS:
+        for row in _read(driver, cypher, seeds=seed_uids):
+            if row["uid"] == row["seed"]:
+                continue
+            seed_section = section_of.get(row["seed"]) or row["seed"].rsplit("#", 1)[-1]
+            reason = template.format(term=row["term"], seed=seed_section, via=row["via"])
+            add(row["uid"], tier, rank_of[row["seed"]], reason, kind, row["term"])
+
+    # Text for every candidate (expansions may be clauses without embedded chunks).
+    texts = {
+        r["uid"]: r
+        for r in _read(
+            driver,
+            "MATCH (c:Clause) WHERE c.uid IN $uids "
+            "RETURN c.uid AS uid, c.section AS section, c.text AS text, c.position AS position",
+            uids=list(items),
+        )
+    }
+    ranked = sorted(
+        items,
+        key=lambda u: (items[u]["tier"], items[u]["seed_rank"], clause_order(texts[u])),
+    )
+    kept, dropped = ranked[:max_items], ranked[max_items:]
+
+    omitted: dict[str, int] = {}
+    for uid in dropped:
+        for kind in items[uid]["kinds"]:
+            omitted[kind] = omitted.get(kind, 0) + 1
+
+    out = []
+    for uid in sorted(kept, key=lambda u: clause_order(texts[u])):
+        item, row = items[uid], texts[uid]
+        anchor = None
+        if uid in score_of and item["tier"] == TIER_SEED:
+            anchor = score_of[uid]["best"]["start"]
+        elif item["terms"]:
+            anchor = _definition_anchor(row["text"], item["terms"][0])
+        why = item["why"][:MAX_REASONS]
+        if len(item["why"]) > MAX_REASONS:
+            why.append(f"... and {len(item['why']) - MAX_REASONS} more reasons")
+        out.append(
+            {
+                **provenance(doc, row["section"], uid),
+                "role": "seed" if item["tier"] == TIER_SEED else "context",
+                "score": _cosine(score_of[uid]["best"]["score"]) if uid in score_of else None,
+                "why": why,
+                **bounded_text(row["text"], max_chars, anchor),
+            }
+        )
+
+    notes = [
+        HUB_NOTE,
+        "Items are in document order. role 'seed' = found by vector search; 'context' = "
+        "added by one graph hop from a seed. score = cosine similarity to the query "
+        "(null for clauses without embedded text, e.g. bare headings).",
+    ]
+    if dropped:
+        notes.append(
+            f"{len(dropped)} more related clauses omitted (max_items={max_items}); "
+            "omitted counts by relation are in 'omitted'. Use get_clause_context on a "
+            "seed to see its full neighbourhood."
+        )
+    return {
+        "query": q,
+        "doc_id": doc,
+        "seeds": [{"section": r["section"], "score": _cosine(r["best"]["score"])} for r in seeds],
+        "returned": len(out),
+        "items": out,
+        "omitted": {"total": len(dropped), "by_relation": omitted},
+        "notes": notes,
     }

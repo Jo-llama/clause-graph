@@ -1,6 +1,7 @@
 """Extract contracts deterministically and load them into Neo4j.
 
-Usage: uv run scripts/load_graph.py [--limit N] [--reset] [--metrics-out PATH]
+Usage: uv run scripts/load_graph.py [--limit N] [--reset] [--rechunk DOC_PREFIX]
+                                   [--metrics-out PATH]
 
 Schema (see CLAUDE.md):
   (:Contract {doc_id, <metrics>})-[:HAS_CLAUSE]->(:Clause {uid, doc_id, section, text})
@@ -8,6 +9,16 @@ Schema (see CLAUDE.md):
   (:Clause)-[:USES_TERM]->(:DefinedTerm)
   (:Clause)-[:REFERENCES {number}]->(:Clause)
   (:Clause)-[:SUBSECTION_OF]->(:Clause)
+  (:Chunk {uid, doc_id, section, idx, text, text_hash, chunker_version, start, end,
+            tokens_est, tokens})-[:CHUNK_OF]->(:Clause)
+Chunk embeddings are added afterwards by scripts/embed_chunks.py. Reloading a
+contract keeps the embedding of every chunk whose uid and text_hash are unchanged;
+embed_chunks.py re-embeds any chunk whose embed_hash differs from its text_hash, so
+a reload can never leave a stale embedding (--reset deletes everything, embeddings too).
+
+Chunker version (ADR 0003): a contract that already has chunks is re-chunked with the
+version it has (missing = v1), so a reload keeps its embeddings; new contracts, --reset
+and --rechunk DOC_PREFIX use chunking.CURRENT_CHUNKER (v2: real bge-m3 tokens).
 """
 
 import argparse
@@ -20,6 +31,16 @@ from pathlib import Path
 from dotenv import load_dotenv
 from neo4j import GraphDatabase
 
+from clause_graph.chunking import (
+    CHUNKER_V1,
+    CHUNKER_V2,
+    CURRENT_CHUNKER,
+    chunk_clause,
+    chunker_version,
+    estimate_tokens,
+    text_hash,
+)
+from clause_graph.embeddings import EmbeddingError, config, count_tokens
 from clause_graph.extract import ContractGraph, extract, term_uid
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -35,6 +56,9 @@ METRIC_FIELDS = [
     "hub_terms",
     "references",
     "subsection_links",
+    "chunks",
+    "chunks_skipped",
+    "chunker_version",
     "unresolved_refs",
     "unresolved_share",
 ]
@@ -43,11 +67,12 @@ CONSTRAINTS = [
     "CREATE CONSTRAINT contract_doc_id IF NOT EXISTS FOR (n:Contract) REQUIRE n.doc_id IS UNIQUE",
     "CREATE CONSTRAINT clause_uid IF NOT EXISTS FOR (n:Clause) REQUIRE n.uid IS UNIQUE",
     "CREATE CONSTRAINT term_uid IF NOT EXISTS FOR (n:DefinedTerm) REQUIRE n.uid IS UNIQUE",
+    "CREATE CONSTRAINT chunk_uid IF NOT EXISTS FOR (n:Chunk) REQUIRE n.uid IS UNIQUE",
 ]
 
 # Re-loading a contract replaces its subgraph, so runs without --reset stay idempotent.
 DELETE_CONTRACT = """
-MATCH (n) WHERE (n:Clause OR n:DefinedTerm) AND n.doc_id = $doc_id
+MATCH (n) WHERE (n:Clause OR n:DefinedTerm OR n:Chunk) AND n.doc_id = $doc_id
 DETACH DELETE n
 """
 MERGE_CONTRACT = """
@@ -83,6 +108,29 @@ MATCH (a:Clause {uid: row.src}), (b:Clause {uid: row.dst})
 MERGE (a)-[r:REFERENCES]->(b)
 SET r.number = row.number
 """
+MERGE_CHUNKS = """
+UNWIND $rows AS row
+MATCH (c:Clause {uid: row.clause})
+MERGE (k:Chunk {uid: row.uid})
+SET k.doc_id = row.doc_id, k.section = row.section, k.idx = row.idx, k.text = row.text,
+    k.text_hash = row.text_hash, k.chunker_version = row.chunker_version,
+    k.start = row.start, k.end = row.end, k.tokens_est = row.tokens_est, k.tokens = row.tokens
+MERGE (k)-[:CHUNK_OF]->(c)
+"""
+CHUNKER_VERSIONS = """
+MATCH (k:Chunk)
+RETURN k.doc_id AS doc_id, max(coalesce(k.chunker_version, 1)) AS version
+"""
+SAVED_EMBEDDINGS = """
+MATCH (k:Chunk {doc_id: $doc_id}) WHERE k.embedding IS NOT NULL
+RETURN k.uid AS uid, k.text AS text, k.embedding AS embedding, k.embed_model AS model
+"""
+RESTORE_EMBEDDINGS = """
+UNWIND $rows AS row
+MATCH (k:Chunk {uid: row.uid})
+CALL db.create.setNodeVectorProperty(k, 'embedding', row.embedding)
+SET k.embed_model = row.model, k.embed_hash = k.text_hash  // text verified unchanged
+"""
 MERGE_SUBSECTIONS = """
 UNWIND $rows AS row
 MATCH (child:Clause {uid: row.child}), (parent:Clause {uid: row.parent})
@@ -103,12 +151,44 @@ def read_contracts(limit: int | None) -> list[dict]:
     return rows
 
 
-def write_contract(tx, g: ContractGraph) -> None:
+def chunk_rows(g: ContractGraph, version: int = CHUNKER_V1) -> tuple[list[dict], int]:
+    """Chunk rows for every clause, and how many near-empty chunks were skipped."""
+    if version == CHUNKER_V2:
+        cfg = config()
+        count = lambda text: count_tokens(text, cfg)  # noqa: E731
+    else:
+        count = estimate_tokens
+    rows, skipped = [], 0
+    for c in g.clauses:
+        chunks, n_skipped = chunk_clause(c.text, count=count)
+        skipped += n_skipped
+        rows += [
+            {
+                "uid": f"{c.uid}#{k.idx}",
+                "clause": c.uid,
+                "doc_id": c.doc_id,
+                "section": c.section,
+                "idx": k.idx,
+                "text": k.text,
+                "text_hash": text_hash(k.text),
+                "chunker_version": version,
+                "start": k.start,
+                "end": k.end,
+                "tokens_est": estimate_tokens(k.text),
+                "tokens": count(k.text) if version == CHUNKER_V2 else None,
+            }
+            for k in chunks
+        ]
+    return rows, skipped
+
+
+def write_contract(tx, g: ContractGraph, chunks: list[dict]) -> None:
     doc_id = g.doc_id
     unresolved_by_clause: dict[str, list[str]] = {}
     for uid, number in g.unresolved:
         unresolved_by_clause.setdefault(uid, []).append(number)
 
+    saved = {r["uid"]: r for r in tx.run(SAVED_EMBEDDINGS, doc_id=doc_id).data()}
     tx.run(DELETE_CONTRACT, doc_id=doc_id)
     tx.run(MERGE_CONTRACT, doc_id=doc_id, metrics=g.metrics)
     tx.run(
@@ -150,6 +230,13 @@ def write_contract(tx, g: ContractGraph) -> None:
         MERGE_REFERENCES,
         rows=[{"src": a, "dst": b, "number": n} for a, b, n in g.references],
     )
+    tx.run(MERGE_CHUNKS, rows=chunks)
+    unchanged = [
+        saved[c["uid"]]
+        for c in chunks
+        if c["uid"] in saved and saved[c["uid"]]["text"] == c["text"]
+    ]
+    tx.run(RESTORE_EMBEDDINGS, rows=unchanged)
     tx.run(
         MERGE_SUBSECTIONS,
         rows=[{"child": c, "parent": p} for c, p in g.subsections],
@@ -160,6 +247,11 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--limit", type=int, default=None, help="load only the first N contracts")
     parser.add_argument("--reset", action="store_true", help="delete the whole graph first")
+    parser.add_argument(
+        "--rechunk",
+        metavar="DOC_PREFIX",
+        help=f"re-chunk matching contracts with chunker v{CURRENT_CHUNKER} (needs re-embedding)",
+    )
     parser.add_argument(
         "--metrics-out", type=Path, default=METRICS_CSV, help="where to write per-contract metrics"
     )
@@ -180,14 +272,26 @@ def main() -> int:
             if args.reset:
                 session.run("MATCH (n) DETACH DELETE n").consume()
                 session.run("DROP CONSTRAINT term_unique IF EXISTS").consume()
+            existing = {r["doc_id"]: r["version"] for r in session.run(CHUNKER_VERSIONS)}
+            chunks_of: dict[str, list[dict]] = {}
+            try:
+                for g in graphs:
+                    version = chunker_version(g.doc_id, existing, args.rechunk)
+                    chunks_of[g.doc_id], skipped = chunk_rows(g, version)
+                    g.metrics["chunks"] = len(chunks_of[g.doc_id])
+                    g.metrics["chunks_skipped"] = skipped
+                    g.metrics["chunker_version"] = version
+            except EmbeddingError as e:
+                sys.exit(f"chunker v{CHUNKER_V2} needs the model tokenizer: {e}")
             for stmt in CONSTRAINTS:
                 session.run(stmt).consume()
             for g in graphs:
-                session.execute_write(write_contract, g)
+                session.execute_write(write_contract, g, chunks_of[g.doc_id])
                 m = g.metrics
                 print(
                     f"{g.doc_id[:60]:<60} sections={m['sections']:>3} defs={m['definitions']:>3} "
-                    f"refs={m['references']:>3} unresolved={m['unresolved_refs']:>3}"
+                    f"refs={m['references']:>3} unresolved={m['unresolved_refs']:>3} chunks={m['chunks']:>3} "
+                    f"v{m['chunker_version']}"
                 )
 
     metrics_out = args.metrics_out.resolve()

@@ -10,10 +10,14 @@ Portfolio project; companion to github.com/Jo-llama/clause-harness.
   section numbers). LLM only where understanding is needed (later: obligations, regimes).
 - Every extraction step logs per-contract metrics, so silent failures (format drift) are visible.
 - Provenance: every node/edge must be traceable to doc_id + section + source text.
+- Embeddings run locally (Ollama, bge-m3). LLM API calls (harness, step 6) are a documented exception
+  allowed only for public CUAD data; production would need an EU-hosted or local LLM.
 
 ## Stack
 - Python >= 3.11, uv (uv sync / uv run), pytest
 - Neo4j 5.26 community in Docker (docker-compose.yml), credentials in .env (NEO4J_PASSWORD)
+- Ollama (docker-compose service, CPU, localhost only) for embeddings; .env: EMBED_MODEL=bge-m3,
+  OLLAMA_URL=http://localhost:11434. Only src/clause_graph/embeddings.py talks to the model.
 - Data: 75 CUAD contracts from clause-harness data/golden.jsonl (fields: doc_id, source_text)
 
 ## Graph schema
@@ -25,6 +29,13 @@ Portfolio project; companion to github.com/Jo-llama/clause-harness.
 uid = "<doc_id>#<section>" for clauses, "<doc_id>#<term name>" for terms (terms are unique per contract).
 section is the number as written, "0" for the preamble, or H1, H2, ... for unnumbered ALL-CAPS
 headings; Clause.position gives document order (use it to sort, not the section id).
+(:Chunk {uid, doc_id, section, idx, text, text_hash, chunker_version, start, end, tokens_est, tokens,
+          embedding, embed_model, embed_hash})-[:CHUNK_OF]->(:Clause)
+  chunk uid = "<clause uid>#<idx>"; start/end are char offsets into the clause text;
+  vector index chunk_embedding (cosine). An embedding is valid only if embed_hash = text_hash.
+  chunker_version: 1 = estimated tokens (chars/4), 2 = real bge-m3 tokens (`tokens`); a reload keeps
+  a contract's version, new contracts get v2 (ADR 0003).
+  Pipeline: load_graph.py (keeps unchanged embeddings; --reset wipes all) -> embed_chunks.py.
 
 ## Roadmap (do one step at a time, do not jump ahead)
 3 deterministic extraction + metrics | 4 MCP server | 5 semantic search + GraphRAG loop |
@@ -33,4 +44,7 @@ headings; Clause.position gives document order (use it to sort, not the section 
 
 ## Working style
 - Small, reviewable changes; explain design decisions briefly in the PR/commit message.
+- Every step that introduces a design decision adds an ADR in docs/adr/ in the same commit
+  (Context, Decision, Alternatives considered, Consequences, Status + date). Never edit an
+  accepted ADR; supersede it with a new one.
 - Never commit .env or data/contracts.jsonl.

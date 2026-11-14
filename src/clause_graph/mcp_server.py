@@ -80,10 +80,12 @@ def build_instructions() -> str:
         corpus = "CUAD commercial contracts"
     return (
         f"Knowledge graph of {corpus}: clauses, defined terms and "
-        "cross-references. Typical flow: list_contracts -> find_clauses (locate a topic) -> "
-        "get_clause_context (assemble the full regime: the clause, definitions of the terms "
-        "it uses, and clauses it cites or is cited by) -> get_definition for any other term. "
-        "Always cite doc_id and section from the results."
+        "cross-references, with local semantic search. Fastest path for a question about one "
+        "contract: assemble_context(query, doc_id) - vector search plus one graph hop, every "
+        "item says why it is included. Manual flow: list_contracts -> search_clauses (meaning) "
+        "or find_clauses (exact wording) -> get_clause_context (the clause, definitions of the "
+        "terms it uses, clauses it cites or is cited by, subsections) -> get_definition for "
+        "any other term. Always cite doc_id and section from the results."
     )
 
 
@@ -159,6 +161,47 @@ def get_clause_context(
     Hub terms like "Agreement" are not expanded.
     """
     return queries.get_clause_context(get_driver(), doc_id, section, max_chars)
+
+
+@server.tool(annotations=READ_ONLY)
+@safe
+def search_clauses(
+    query: str, doc_id: str | None = None, k: int = 10, max_chars: int = DEFAULT_MAX_CHARS
+) -> dict:
+    """Semantic search: find clauses whose meaning matches a natural-language query.
+
+    Use this when the contract may phrase a topic differently from your words, e.g.
+    "limitation of liability" also finds "shall not exceed the insurance coverage".
+    Omit doc_id to search all contracts. Returns up to k (max 50) clauses, best
+    first, each with doc_id, section, uid, score (cosine similarity, roughly
+    0.3 weak .. 0.6+ strong) and text excerpted around the best-matching chunk.
+    Embeddings are computed locally; no text leaves the machine. For exact wording
+    use find_clauses instead.
+    """
+    return queries.search_clauses(get_driver(), query, doc_id, k, max_chars)
+
+
+@server.tool(annotations=READ_ONLY)
+@safe
+def assemble_context(
+    query: str,
+    doc_id: str,
+    k: int = queries.DEFAULT_SEEDS,
+    max_items: int = queries.DEFAULT_CONTEXT_ITEMS,
+    max_chars: int = queries.DEFAULT_CONTEXT_CHARS,
+) -> dict:
+    """GraphRAG in one call: everything needed to answer a question about one contract.
+
+    Use this first for questions like "how is liability limited?". Takes the k
+    best semantic matches as seeds, then adds one graph hop around each seed:
+    definitions of terms it uses, clauses it references and their subsections,
+    clauses referencing it, its subsections, parent and siblings. Returns items in
+    document order; each has doc_id, section, uid, role ("seed" or "context"),
+    score, text, and "why" - the reasons it is included (e.g. "vector match 0.57
+    (rank 1)", "defines 'Freight' used by 6.0", "referenced by 8.2"). At most
+    max_items (default 25) items; "omitted" counts what was cut, by relation.
+    """
+    return queries.assemble_context(get_driver(), query, doc_id, k, max_items, max_chars)
 
 
 if __name__ == "__main__":

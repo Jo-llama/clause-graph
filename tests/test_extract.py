@@ -52,6 +52,12 @@ def test_year_and_large_integers_are_not_sections():
     assert [s.number for s in split_sections(text)] == ["0", "1", "2"]
 
 
+def test_plain_zero_is_not_a_section():
+    # "0" is reserved for the preamble; a stray "0 Platform" must not collide with it.
+    text = "Preamble.\n1. Scope. Runs on release 4.\n0 Platform, fails to start.\n2. Fees. None."
+    assert [s.number for s in split_sections(text)] == ["0", "1", "2"]
+
+
 def test_repeated_numbers_keep_first_occurrence():
     text = "1. Scope. Text.\n2. Price. Table:\n1. Widgets 10\n3. Term. Text."
     assert [s.number for s in split_sections(text)] == ["1", "2", "3"]

@@ -8,6 +8,7 @@ dependencies = [
     "mcp>=2.3,<3",
     "neo4j>=5.20",
     "python-dotenv",
+    "tokenizers>=0.20,<1",
 ]
 
 [dependency-groups]

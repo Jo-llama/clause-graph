@@ -11,3 +11,19 @@ services:
       NEO4J_server_memory_pagecache_size: 256m
     volumes:
       - ./neo4j-data:/data
+
+  # Local embeddings: contract text never leaves this machine. CPU only (no GPU
+  # reservation); port bound to localhost so the model is not exposed on the network.
+  ollama:
+    image: ollama/ollama:0.40.16
+    container_name: clause-graph-ollama
+    ports:
+      - "127.0.0.1:11434:11434"
+    environment:
+      OLLAMA_NUM_PARALLEL: "1"
+      OLLAMA_KEEP_ALIVE: "30m"
+    volumes:
+      - ollama-models:/root/.ollama
+
+volumes:
+  ollama-models:

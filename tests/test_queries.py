@@ -160,3 +160,49 @@ def test_get_clause_context_expands_subsections_of_referenced_clause(driver):
 def test_get_clause_context_lists_own_subsections(driver):
     ctx = queries.get_clause_context(driver, DYNAMEX, "9.0")
     assert [s["section"] for s in ctx["clause"]["subsections"]][:2] == ["9.1", "9.2"]
+
+
+# ---------------------------------------------------------------- semantic search (needs Ollama)
+
+
+@pytest.fixture(scope="module")
+def ollama():
+    from clause_graph import embeddings
+
+    try:
+        embeddings.embed_query("ping")
+    except embeddings.EmbeddingError as e:
+        pytest.skip(f"Ollama not available: {e}")
+
+
+def test_search_clauses_in_one_contract(driver, ollama):
+    out = queries.search_clauses(driver, "limitation of liability", doc_id=DYNAMEX, k=5)
+    sections = [c["section"] for c in out["clauses"]]
+    assert "8.2" in sections[:3]  # the liability cap
+    scores = [c["score"] for c in out["clauses"]]
+    assert scores == sorted(scores, reverse=True) and all(-1 <= s <= 1 for s in scores)
+    assert all({"doc_id", "section", "uid", "text"} <= c.keys() for c in out["clauses"])
+
+
+def test_search_clauses_rejects_empty_query(driver):
+    with pytest.raises(QueryError, match="empty"):
+        queries.search_clauses(driver, "  ", doc_id=DYNAMEX)
+
+
+def test_assemble_context_brings_the_liability_regime_together(driver, ollama):
+    out = queries.assemble_context(driver, "how is liability limited?", DYNAMEX)
+    by_section = {i["section"]: i for i in out["items"]}
+    assert {"6.0", "8.1", "8.2", "9.1"} <= by_section.keys()
+    assert any(w.startswith("vector match") for w in by_section["8.2"]["why"])
+    assert "referenced by 8.2" in by_section["9.0"]["why"]
+    assert any("'Freight'" in w for w in by_section["1.1"]["why"])
+    assert all(i["why"] for i in out["items"])
+    positions = [i["uid"] for i in out["items"]]
+    assert len(positions) == len(set(positions))  # deduplicated
+
+
+def test_assemble_context_is_bounded(driver, ollama):
+    out = queries.assemble_context(driver, "how is liability limited?", DYNAMEX, max_items=6)
+    assert out["returned"] == 6
+    assert out["omitted"]["total"] > 0 and out["omitted"]["by_relation"]
+    assert sum(i["role"] == "seed" for i in out["items"]) == 5  # seeds are kept first

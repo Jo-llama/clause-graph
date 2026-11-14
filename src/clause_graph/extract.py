@@ -113,8 +113,8 @@ def split_sections(text: str, caps_headings: bool = True) -> list[Section]:
     seen: set[str] = set()
     for m in HEADING_RE.finditer(text):
         number = re.sub(r"[ \t]", "", m.group(1))
-        if "." not in number and int(number) > MAX_PLAIN_SECTION:
-            continue
+        if "." not in number and not 0 < int(number) <= MAX_PLAIN_SECTION:
+            continue  # "0" is the preamble; large plain integers are years, amounts
         if number in seen:
             continue
         seen.add(number)
