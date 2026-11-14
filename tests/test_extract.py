@@ -1,6 +1,7 @@
 from clause_graph.extract import (
     extract,
     find_definitions,
+    find_parent,
     find_references,
     resolve_reference,
     split_sections,
@@ -82,3 +83,82 @@ def test_no_self_references_and_hub_terms():
     assert g.references == []
     assert g.hub_terms == ["Agreement"]
     assert all(name != "Agreement" for _, name in g.uses)
+
+
+# ---------------------------------------------------------------- step 3b: splitting
+
+
+def test_spaced_numbering_is_normalised():
+    text = (
+        "Preamble.\n5.    LICENSE FEES   5. 1.     Licence Fee: payable now.\n"
+        "5 .2 Payment Terms: thirty days.\n23. 1   Without limiting the above, insurance."
+    )
+    assert [s.number for s in split_sections(text)] == ["0", "5", "5.1", "5.2", "23.1"]
+
+
+def test_find_parent_walks_up_to_nearest_existing_ancestor():
+    sections = {"9.0", "9.1", "12", "12.1", "12.1.1", "14.2.3"}
+    assert find_parent("9.1", sections) == "9.0"  # article exists only as a "9.0" heading
+    assert find_parent("12.1", sections) == "12"
+    assert find_parent("12.1.1", sections) == "12.1"
+    assert find_parent("14.2.3", sections) is None  # no ancestor extracted
+    assert find_parent("12", sections) is None
+    assert find_parent("9.0", sections | {"9"}) == "9"
+    assert find_parent("H3", sections) is None
+
+
+def test_subsection_links():
+    text = (
+        "Preamble.\n8.1 Indemnity. Each Party indemnifies.\n"
+        "8.2 Cap. Liability shall not exceed the insurance in Section 9.0.\n"
+        "9.0    INSURANCE\n9.1 Cover. Cargo insurance of $100,000.\n9.2 Proof. Certificates.\n"
+    )
+    g = extract("dyn", text)
+    uid = by_section(g)
+    assert set(g.subsections) == {(uid["9.1"], uid["9.0"]), (uid["9.2"], uid["9.0"])}
+    assert g.metrics["subsection_links"] == 2
+
+
+CAPS = """GLOBAL MASTER SUPPLY AGREEMENT
+
+This Agreement is between Seller Inc ("Seller") and Buyer Inc ("Buyer").
+
+PRODUCTS, QUANTITY, PRICE
+
+Buyer shall purchase the Product.
+
+ACME CORP CONFIDENTIAL
+Page text continues here.
+
+WRITTEN AGREEMENT If there is an executed contract, it prevails.
+
+IN NO EVENT SHALL EITHER PARTY BE LIABLE FOR ANY INDIRECT OR CONSEQUENTIAL DAMAGES WHATSOEVER.
+ACME CORP CONFIDENTIAL
+More text.
+ACME CORP CONFIDENTIAL
+End.
+"""
+
+
+def test_caps_headings_become_synthetic_sections():
+    secs = split_sections(CAPS)
+    assert [s.number for s in secs] == ["0", "H1", "H2"]
+    assert secs[0].text.startswith("GLOBAL MASTER SUPPLY AGREEMENT")  # title stays in preamble
+    assert secs[1].text.startswith("PRODUCTS, QUANTITY, PRICE")
+    assert secs[2].text.startswith("WRITTEN AGREEMENT If there")
+    # repeated page header and the all-caps disclaimer do not split
+    assert "ACME CORP CONFIDENTIAL" in secs[1].text and "IN NO EVENT" in secs[2].text
+
+
+def test_caps_headings_can_be_disabled_and_do_not_count_as_numbered():
+    assert [s.number for s in split_sections(CAPS, caps_headings=False)] == ["0"]
+    g = extract("caps", CAPS)
+    assert g.metrics["sections"] == 0  # numbering failure stays visible
+    assert g.metrics["caps_sections"] == 2
+    assert [c.position for c in g.clauses] == [0, 1, 2]
+
+
+def test_size_metrics():
+    g = extract("mini", MINI)
+    assert g.metrics["preamble_chars"] == len(g.clauses[0].text)
+    assert g.metrics["max_clause_chars"] == max(len(c.text) for c in g.clauses)

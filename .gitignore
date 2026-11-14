@@ -5,3 +5,4 @@ neo4j-data/
 data/contracts.jsonl
 runs/*
 !runs/extraction_metrics.csv
+!runs/extraction_metrics_v1.csv

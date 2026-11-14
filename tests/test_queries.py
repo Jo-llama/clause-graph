@@ -1,6 +1,6 @@
 """Integration tests for queries.py against the running Neo4j.
 
-Expect the 10 contracts loaded by: uv run scripts/load_graph.py --limit 10 --reset
+Expect all 75 contracts loaded by: uv run scripts/load_graph.py --reset
 Skipped when Neo4j is down or the graph is empty.
 """
 
@@ -15,6 +15,7 @@ from clause_graph.queries import QueryError, bounded_text, match_doc_id, normali
 
 ROOT = Path(__file__).resolve().parent.parent
 WEST = "WestPharma"
+DYNAMEX = "DYNAMEX"
 
 
 @pytest.fixture(scope="module")
@@ -34,7 +35,7 @@ def driver():
         pytest.skip(f"Neo4j not reachable: {e}")
     if not queries.list_contracts(drv):
         drv.close()
-        pytest.skip("graph is empty; run scripts/load_graph.py --limit 10 --reset")
+        pytest.skip("graph is empty; run scripts/load_graph.py --reset")
     yield drv
     drv.close()
 
@@ -64,6 +65,7 @@ def test_bounded_text_keeps_anchor_visible():
 def test_normalize_section():
     assert normalize_section("Section 12.3.") == "12.3"
     assert normalize_section("preamble") == "0"
+    assert normalize_section("h3") == "H3"
     assert normalize_section(7) == "7"
 
 
@@ -104,7 +106,11 @@ def test_find_clauses_limit_and_truncation(driver):
 
 def test_get_definition_multiple_sections(driver):
     out = queries.get_definition(driver, WEST, "Agreement")
-    assert out["defined_in_sections"] == ["0", "36"]
+    # Master agreement preamble + the seller's Standard Terms, which start at an
+    # unnumbered ALL-CAPS heading (synthetic id H<n>).
+    first, second = out["defined_in_sections"]
+    assert first == "0" and second.startswith("H")
+    assert "Standard Terms and Conditions" in out["definitions"][1]["text"]
     assert any("2 sections" in n for n in out["notes"])
     assert all(d["uid"].endswith("#" + d["section"]) for d in out["definitions"])
 
@@ -118,7 +124,7 @@ def test_get_clause_context_definitions(driver):
     ctx = queries.get_clause_context(driver, WEST, "13")
     assert ctx["clause"]["section"] == "13"
     terms = {d["term"] for d in ctx["definitions"]}
-    assert "Agreement" in terms  # not a hub here: 9/24 clauses use it
+    assert "Product" in terms  # "Agreement" is a hub term in West and is not expanded
     for d in ctx["definitions"]:
         assert all({"doc_id", "section", "uid", "text"} <= x.keys() for x in d["defined_in"])
 
@@ -138,3 +144,19 @@ def test_get_clause_context_references_both_directions(driver):
 def test_get_clause_context_unknown_section(driver):
     with pytest.raises(QueryError, match="not found"):
         queries.get_clause_context(driver, WEST, "99.9")
+
+
+def test_get_clause_context_expands_subsections_of_referenced_clause(driver):
+    # Regression: 8.2 caps liability at "the insurance coverage set out in Section 9.0";
+    # 9.0 is only the heading, the amounts are in its subsection 9.1.
+    ctx = queries.get_clause_context(driver, DYNAMEX, "8.2")
+    ref = next(r for r in ctx["references"] if r["section"] == "9.0")
+    subs = {s["section"]: s["text"] for s in ref["subsections"]}
+    assert "9.1" in subs
+    assert "$100,000.00" in subs["9.1"] and "$2,000,000.00" in subs["9.1"]
+    assert list(subs) == sorted(subs, key=lambda x: tuple(map(int, x.split("."))))
+
+
+def test_get_clause_context_lists_own_subsections(driver):
+    ctx = queries.get_clause_context(driver, DYNAMEX, "9.0")
+    assert [s["section"] for s in ctx["clause"]["subsections"]][:2] == ["9.1", "9.2"]

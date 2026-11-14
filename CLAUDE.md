@@ -21,7 +21,10 @@ Portfolio project; companion to github.com/Jo-llama/clause-harness.
 (:Clause)-[:DEFINES]->(:DefinedTerm {uid, doc_id, name})
 (:Clause)-[:USES_TERM]->(:DefinedTerm)
 (:Clause)-[:REFERENCES]->(:Clause)
+(:Clause)-[:SUBSECTION_OF]->(:Clause)   e.g. 9.1 -> 9 (or 9.0 if the article is only a heading)
 uid = "<doc_id>#<section>" for clauses, "<doc_id>#<term name>" for terms (terms are unique per contract).
+section is the number as written, "0" for the preamble, or H1, H2, ... for unnumbered ALL-CAPS
+headings; Clause.position gives document order (use it to sort, not the section id).
 
 ## Roadmap (do one step at a time, do not jump ahead)
 3 deterministic extraction + metrics | 4 MCP server | 5 semantic search + GraphRAG loop |

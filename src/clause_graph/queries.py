@@ -44,6 +44,14 @@ def section_key(section: str) -> tuple[int, ...]:
         return (10**6,)
 
 
+def clause_order(row: dict) -> tuple[int, ...]:
+    """Document order: Clause.position when loaded, else the numeric section key
+    (synthetic ALL-CAPS ids like "H3" have no numeric order)."""
+    if row.get("position") is not None:
+        return (row["position"],)
+    return section_key(row["section"])
+
+
 def provenance(doc_id: str, section: str, uid: str) -> dict:
     return {"doc_id": doc_id, "section": section, "uid": uid}
 
@@ -109,7 +117,8 @@ def normalize_section(section: str | int) -> str:
     if s.lower() in {"preamble", "0"}:
         return "0"
     s = re.sub(r"^(?:section|article|clause|§)\s*", "", s, flags=re.I)
-    return s.rstrip(".").strip()
+    s = s.rstrip(".").strip()
+    return s.upper() if re.fullmatch(r"h\d+", s, re.I) else s  # synthetic ALL-CAPS ids
 
 
 def _definition_anchor(text: str, term: str) -> int | None:
@@ -149,12 +158,12 @@ def find_clauses(
         """
         MATCH (c:Clause {doc_id: $doc})
         WHERE toLower(c.text) CONTAINS toLower($kw)
-        RETURN c.section AS section, c.uid AS uid, c.text AS text
+        RETURN c.section AS section, c.uid AS uid, c.text AS text, c.position AS position
         """,
         doc=doc,
         kw=kw,
     )
-    rows.sort(key=lambda r: section_key(r["section"]))
+    rows.sort(key=clause_order)
     clauses = []
     for r in rows[:limit]:
         anchor = r["text"].lower().find(kw.lower())
@@ -183,7 +192,7 @@ def get_definition(
         MATCH (t:DefinedTerm {doc_id: $doc})
         OPTIONAL MATCH (c:Clause)-[:DEFINES]->(t)
         RETURN t.name AS name, t.uid AS uid, t.hub AS hub,
-               collect(c {.section, .uid, .text}) AS clauses
+               collect(c {.section, .uid, .text, .position}) AS clauses
         """,
         doc=doc,
     )
@@ -207,7 +216,7 @@ def get_definition(
             "Terms are matched as written in quotes in the contract, e.g. \"Losses\"."
         )
 
-    defining = sorted(row["clauses"], key=lambda c: section_key(c["section"]))
+    defining = sorted(row["clauses"], key=clause_order)
     definitions = [
         {
             **provenance(doc, c["section"], c["uid"]),
@@ -283,7 +292,8 @@ def get_clause_context(
         driver,
         """
         MATCH (c:Clause {uid: $uid})-[:USES_TERM]->(t:DefinedTerm)<-[:DEFINES]-(d:Clause)
-        RETURN t.name AS term, t.uid AS term_uid, collect(d {.section, .uid, .text}) AS defs
+        RETURN t.name AS term, t.uid AS term_uid,
+               collect(d {.section, .uid, .text, .position}) AS defs
         ORDER BY toLower(t.name)
         """,
         uid=uid,
@@ -292,7 +302,8 @@ def get_clause_context(
         driver,
         """
         MATCH (c:Clause {uid: $uid})-[r:REFERENCES]->(o:Clause)
-        RETURN o.section AS section, o.uid AS uid, o.text AS text, r.number AS number
+        RETURN o.section AS section, o.uid AS uid, o.text AS text, o.position AS position,
+               r.number AS number
         """,
         uid=uid,
     )
@@ -300,15 +311,32 @@ def get_clause_context(
         driver,
         """
         MATCH (i:Clause)-[r:REFERENCES]->(c:Clause {uid: $uid})
-        RETURN i.section AS section, i.uid AS uid, i.text AS text, r.number AS number
+        RETURN i.section AS section, i.uid AS uid, i.text AS text, i.position AS position,
+               r.number AS number
         """,
         uid=uid,
     )
+    # Subsections (any depth) of the clause and of every clause it cites or is cited by:
+    # a reference to "Section 9.0" means the heading plus 9.1, 9.2, ...
+    parents = [uid] + [r["uid"] for r in outgoing + incoming]
+    sub_rows = _read(
+        driver,
+        """
+        UNWIND $parents AS parent
+        MATCH (s:Clause)-[:SUBSECTION_OF*1..3]->(:Clause {uid: parent})
+        RETURN parent, s.section AS section, s.uid AS uid, s.text AS text,
+               s.position AS position
+        """,
+        parents=parents,
+    )
+    subs_of: dict[str, list[dict]] = {}
+    for r in sub_rows:
+        subs_of.setdefault(r["parent"], []).append(r)
 
     notes: list[str] = [HUB_NOTE]
     definitions = []
     for u in _capped(uses, "definitions", notes):
-        defs = sorted(u["defs"], key=lambda d: section_key(d["section"]))
+        defs = sorted(u["defs"], key=clause_order)
         definitions.append(
             {
                 "term": u["term"],
@@ -325,14 +353,27 @@ def get_clause_context(
             }
         )
 
+    def subsections(parent_uid: str, label: str) -> dict:
+        rows = sorted(subs_of.get(parent_uid, []), key=clause_order)
+        if not rows:
+            return {}
+        shown = _capped(rows, f"subsections of {label}", notes)
+        return {
+            "subsections": [
+                {**provenance(doc, r["section"], r["uid"]), **bounded_text(r["text"], max_chars)}
+                for r in shown
+            ]
+        }
+
     def related(rows: list[dict], direction: str) -> list[dict]:
-        rows = sorted(rows, key=lambda r: section_key(r["section"]))
+        rows = sorted(rows, key=clause_order)
         return [
             {
                 "direction": direction,
                 "number_as_written": r["number"],
                 **provenance(doc, r["section"], r["uid"]),
                 **bounded_text(r["text"], max_chars),
+                **subsections(r["uid"], f"section {r['section']}"),
             }
             for r in rows
         ]
@@ -346,6 +387,7 @@ def get_clause_context(
             **provenance(doc, sec, uid),
             **bounded_text(clause_row["text"], max_chars),
             "defines": sorted(clause_row["defines"]),
+            **subsections(uid, f"section {sec}"),
         },
         "definitions": definitions,
         "references": references,

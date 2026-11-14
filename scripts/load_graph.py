@@ -1,12 +1,13 @@
 """Extract contracts deterministically and load them into Neo4j.
 
-Usage: uv run scripts/load_graph.py [--limit N] [--reset]
+Usage: uv run scripts/load_graph.py [--limit N] [--reset] [--metrics-out PATH]
 
 Schema (see CLAUDE.md):
   (:Contract {doc_id, <metrics>})-[:HAS_CLAUSE]->(:Clause {uid, doc_id, section, text})
   (:Clause)-[:DEFINES]->(:DefinedTerm {uid, doc_id, name})
   (:Clause)-[:USES_TERM]->(:DefinedTerm)
   (:Clause)-[:REFERENCES {number}]->(:Clause)
+  (:Clause)-[:SUBSECTION_OF]->(:Clause)
 """
 
 import argparse
@@ -26,10 +27,14 @@ CONTRACTS = ROOT / "data" / "contracts.jsonl"
 METRICS_CSV = ROOT / "runs" / "extraction_metrics.csv"
 METRIC_FIELDS = [
     "sections",
+    "caps_sections",
+    "preamble_chars",
+    "max_clause_chars",
     "definitions",
     "term_uses",
     "hub_terms",
     "references",
+    "subsection_links",
     "unresolved_refs",
     "unresolved_share",
 ]
@@ -54,7 +59,7 @@ MATCH (k:Contract {doc_id: $doc_id})
 UNWIND $rows AS row
 MERGE (c:Clause {uid: row.uid})
 SET c.doc_id = row.doc_id, c.section = row.section, c.text = row.text,
-    c.unresolved_refs = row.unresolved_refs
+    c.position = row.position, c.unresolved_refs = row.unresolved_refs
 MERGE (k)-[:HAS_CLAUSE]->(c)
 """
 MERGE_TERMS = """
@@ -77,6 +82,11 @@ UNWIND $rows AS row
 MATCH (a:Clause {uid: row.src}), (b:Clause {uid: row.dst})
 MERGE (a)-[r:REFERENCES]->(b)
 SET r.number = row.number
+"""
+MERGE_SUBSECTIONS = """
+UNWIND $rows AS row
+MATCH (child:Clause {uid: row.child}), (parent:Clause {uid: row.parent})
+MERGE (child)-[:SUBSECTION_OF]->(parent)
 """
 
 
@@ -110,6 +120,7 @@ def write_contract(tx, g: ContractGraph) -> None:
                 "doc_id": c.doc_id,
                 "section": c.section,
                 "text": c.text,
+                "position": c.position,
                 "unresolved_refs": unresolved_by_clause.get(c.uid, []),
             }
             for c in g.clauses
@@ -139,12 +150,19 @@ def write_contract(tx, g: ContractGraph) -> None:
         MERGE_REFERENCES,
         rows=[{"src": a, "dst": b, "number": n} for a, b, n in g.references],
     )
+    tx.run(
+        MERGE_SUBSECTIONS,
+        rows=[{"child": c, "parent": p} for c, p in g.subsections],
+    )
 
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--limit", type=int, default=None, help="load only the first N contracts")
     parser.add_argument("--reset", action="store_true", help="delete the whole graph first")
+    parser.add_argument(
+        "--metrics-out", type=Path, default=METRICS_CSV, help="where to write per-contract metrics"
+    )
     args = parser.parse_args()
 
     load_dotenv(ROOT / ".env")
@@ -172,14 +190,15 @@ def main() -> int:
                     f"refs={m['references']:>3} unresolved={m['unresolved_refs']:>3}"
                 )
 
-    METRICS_CSV.parent.mkdir(parents=True, exist_ok=True)
-    with METRICS_CSV.open("w", newline="", encoding="utf-8") as f:
+    metrics_out = args.metrics_out.resolve()
+    metrics_out.parent.mkdir(parents=True, exist_ok=True)
+    with metrics_out.open("w", newline="", encoding="utf-8") as f:
         writer = csv.DictWriter(f, fieldnames=["doc_id", *METRIC_FIELDS])
         writer.writeheader()
         for g in graphs:
             writer.writerow({"doc_id": g.doc_id, **g.metrics})
 
-    print(f"loaded {len(graphs)} contracts into {uri}; metrics -> {METRICS_CSV.relative_to(ROOT)}")
+    print(f"loaded {len(graphs)} contracts into {uri}; metrics -> {metrics_out}")
     return 0
 
 

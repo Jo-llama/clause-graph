@@ -152,7 +152,10 @@ def get_clause_context(
       to) and clauses citing it (direction "incoming", e.g. exclusions that override it);
     - unresolved_references: section numbers cited in the text that do not exist
       in the extracted graph - treat them as gaps, not as absent provisions.
-    section is the number as written ("12", "12.3"); "0" is the preamble.
+    The clause and every referenced clause carry "subsections" when they have any
+    (e.g. a citation of "Section 9.0" comes with 9.1, 9.2, ...), in document order.
+    section is the number as written ("12", "12.3"); "0" is the preamble; H1, H2, ...
+    are unnumbered ALL-CAPS headings (e.g. "WRITTEN AGREEMENT").
     Hub terms like "Agreement" are not expanded.
     """
     return queries.get_clause_context(get_driver(), doc_id, section, max_chars)
