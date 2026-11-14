@@ -3,3 +3,5 @@
 __pycache__/
 neo4j-data/
 data/contracts.jsonl
+runs/*
+!runs/extraction_metrics.csv
