@@ -1,0 +1,13 @@
+{
+  "mcpServers": {
+    "clause-graph": {
+      "type": "stdio",
+      "command": "uv",
+      "args": [
+        "run",
+        "src/clause_graph/mcp_server.py"
+      ],
+      "env": {}
+    }
+  }
+}

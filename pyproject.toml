@@ -5,6 +5,7 @@ description = "GraphRAG for contracts: Neo4j knowledge graph of clauses, defined
 readme = "CLAUDE.md"
 requires-python = ">=3.11"
 dependencies = [
+    "mcp>=2.3,<3",
     "neo4j>=5.20",
     "python-dotenv",
 ]
