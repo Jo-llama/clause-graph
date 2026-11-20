@@ -3,7 +3,10 @@
 __pycache__/
 neo4j-data/
 data/contracts.jsonl
+data/gold.jsonl
 runs/*
 !runs/extraction_metrics.csv
 !runs/extraction_metrics_v1.csv
+!runs/eval_candidates.csv
+!runs/eval_candidates_summary.json
 .claude/settings.local.json

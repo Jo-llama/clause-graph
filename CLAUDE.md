@@ -38,8 +38,11 @@ headings; Clause.position gives document order (use it to sort, not the section 
   vector index chunk_embedding (cosine). An embedding is valid only if embed_hash = text_hash.
   chunker_version: 1 = estimated tokens (chars/4), 2 = real bge-m3 tokens (`tokens`); a reload keeps
   a contract's version, new contracts get v2 (ADR 0003).
-  Pipeline: load_graph.py (keeps unchanged embeddings; --reset wipes all) -> embed_chunks.py
-  -> extract_regimes.py.
+  Pipeline: get_contracts.py (data/contracts.jsonl + data/gold.jsonl) -> load_graph.py (keeps
+  unchanged embeddings; --reset wipes all) -> embed_chunks.py -> extract_regimes.py.
+  Eval (step 7a, ADR 0005, no LLM): eval_candidates.py -> runs/eval_candidates.csv + _summary.json
+  (committed) + runs/eval_gold_clauses.csv (per span->clause provenance; local, git-ignored)
+  (candidate recall vs CUAD gold spans; src/clause_graph/evaluate.py is the pure matching code).
 (:Regime {uid: "<doc_id>#<name>", doc_id, name, runs})   names in src/clause_graph/regimes.json
 (:Clause)-[:PART_OF {role, evidence, confidence, status, checks, method, model, prompt_version}]->(:Regime)
 (:Clause)-[:RELIES_ON {evidence, status, checks, regime, method, model, prompt_version}]->(:Clause)

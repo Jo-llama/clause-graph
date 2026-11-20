@@ -106,3 +106,74 @@ overnight/incremental batching: embed_chunks.py is resumable and only embeds chu
   bge-m3's 8,192-token limit and were embedded whole (`truncate: false`, num_ctx 4096), so
   they are kept; re-embedding them would cost hours for no measured retrieval gain.
   Contracts loaded from now on use chunker v2 (real tokens). See ADR 0003.
+
+## 8. Candidate recall (step 7a, ADR 0005)
+
+How many CUAD gold evidence clauses the step-6 candidate selection (top-k chunks + one graph
+hop, no LLM) reaches: the upper limit on LLM recall. Measure with
+`uv run scripts/eval_candidates.py --k 15 --k 25 --k 40`; results in
+`runs/eval_candidates.csv` and `runs/eval_candidates_summary.json`
+(`by_k.<k>.by_regime`, `.by_category`, `.by_health`).
+
+Numbers below: first live run, 2026-11-20, 75 contracts, max 25 candidates, 4,000-char
+excerpts, bge-m3 (`runs/eval_candidates_summary.json`; two runs are byte-identical).
+Definitions (ADR 0005): **micro** = pooled hits / pooled gold clauses; **macro** = mean
+per-contract recall (for `all` and `by_health` each contract's regimes are summed first);
+**clause** = gold clause is a candidate; **excerpt** = the excerpt sent contains gold
+evidence; **span** = at least one clause holding the span is a candidate.
+
+- **Span matching**: 489 of 489 gold spans are contained in a clause after whitespace
+  collapse (0 overlap, 0 unmatched, 0 no_source); `spans.multi_clause` = 1 (one span lies
+  in two clauses and so adds two gold clauses). `gold_contracts_not_evaluated` is empty.
+- **Candidate recall at k = 15** (micro, 330 gold clauses / 489 spans):
+
+  | Regime | clause | excerpt | span | gold clauses | hop hits |
+  |---|---|---|---|---|---|
+  | Liability | 0.81 | 0.77 | 0.84 | 77 | 7 |
+  | Termination | 0.87 | 0.74 | 0.87 | 31 | 2 |
+  | Assignment & Control | 0.92 | 0.84 | 0.92 | 89 | 1 |
+  | Restrictive Covenants | 0.69 | 0.56 | 0.78 | 62 | 5 |
+  | Governing Law & Disputes | 0.96 | 0.89 | 0.96 | 71 | 0 |
+  | **All** | **0.85** | **0.77** | **0.87** | 330 | 15 |
+
+  All, per-contract macro (71 contracts with gold): clause 0.92, excerpt 0.85. Mean
+  candidates per (contract, regime) 18.6; 35 % of the contract characters are sent.
+  Weakest categories: exclusivity 0.69 (excerpt 0.57), non_compete 0.75 (excerpt 0.54).
+  Span recall is above clause recall for Restrictive Covenants (0.78 vs 0.69) and Liability
+  (0.84 vs 0.81): the missed gold clauses hold fewer gold spans on average than the hit ones.
+- **Effect of k** (micro clause recall at k = 15 / 25 / 40): Liability 0.81 / 0.77 / 0.75,
+  Termination 0.87 / 0.90 / 0.94, Assignment & Control 0.92 / 0.93 / 0.94, Restrictive
+  Covenants 0.69 / 0.71 / 0.73, Governing Law & Disputes 0.96 / 0.97 / 0.97; all
+  0.85 / 0.86 / 0.86, chars sent 35 % / 39 % / 41 %. Liability falls with k because the
+  25-candidate cap lets the extra vector seeds push out graph-hop candidates: graph-hop hits
+  are 15 at k = 15 (Liability 7) and 0 for every regime at k = 25 and 40. Changing
+  `MAX_CANDIDATES` or the default k is NOT done in 7a (out of scope); it is the obvious lever
+  for later (e.g. reserve candidate slots for graph hops), to be judged with this eval.
+- **By contract health** (k = 15, micro clause / excerpt, per-contract macro clause):
+
+  | Group | contracts with gold | clause | excerpt | span | macro | misses |
+  |---|---|---|---|---|---|---|
+  | ok | 55 | 0.91 | 0.84 | 0.93 | 0.95 | 19 |
+  | high_caps (caps_sections >= 10) | 10 | 0.65 | 0.63 | 0.70 | 0.74 | 29 |
+  | sections_0 | 6 | 1.00 | 0.63 | 1.00 | 1.00 | 0 |
+
+  high_caps contracts (section 1) cause 29 of the 48 misses with 83 of 330 gold clauses: many
+  small sections fill the 25-candidate cap (mean 24.3 candidates vs 19.5 for ok), consistent
+  with the expectation that parentless subsections defeat the graph hop (not yet verified
+  per miss; `runs/eval_gold_clauses.csv` has the misses). sections_0 contracts (section 2)
+  confirm the expectation: their few huge clauses are always candidates (clause recall 1.00), but the 4,000-char excerpt
+  misses the span in 9 of 24 gold clauses.
+- **`present` flag vs evidence** (gold is the evidence, not the flag; user decision C):
+  5 (contract, category) rows disagree (`present_disagreements` in the summary JSON).
+
+  | Contract | Category | present | spans |
+  |---|---|---|---|
+  | TELKOMSALTD_01_30_2003-EX-10-LICENCE AND MAINTENANCE AGREEMENT | non_compete | false | 1 |
+  | LECLANCHÉ S.A. - JOINT DEVELOPMENT AND MARKETING AGREEMENT | change_of_control | false | 2 |
+  | AULAMERICANUNITTRUST_04_24_2020-EX-99.8.77-SERVICING AGREEMENT | anti_assignment | true | 0 |
+  | JOINTCORP_09_19_2014-EX-10.15-FRANCHISE AGREEMENT | exclusivity | false | 1 |
+  | JOINTCORP_09_19_2014-EX-10.15-FRANCHISE AGREEMENT | termination_for_convenience | false | 1 |
+
+  The four spans with `present = false` are scored as gold; AULAMERICAN anti_assignment has
+  nothing to match and does not count.
+- Confidentiality has no CUAD category ("no gold") and is not scored.
