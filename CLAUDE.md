@@ -42,6 +42,11 @@ headings; Clause.position gives document order (use it to sort, not the section 
 6 LLM extraction (obligations, roles, Regime) | 7 red-team + completeness eval |
 8 A2A (harness as agent) | 9 n8n pipeline + HITL | 10 Azure deploy | 11 ADRs | 13 README
 
+## Agents (.claude/agents/)
+- pm (read-only spec + acceptance criteria) -> engineer (implements, writes ADR, no commits)
+  -> tester (edits tests/ only) -> reviewer (read-only, ranked findings).
+- /ship-step <task> runs that pipeline from the main session; the user approves the spec and commits.
+
 ## Working style
 - Small, reviewable changes; explain design decisions briefly in the PR/commit message.
 - Every step that introduces a design decision adds an ADR in docs/adr/ in the same commit
