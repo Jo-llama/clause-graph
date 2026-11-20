@@ -529,6 +529,7 @@ def search_clauses(
 # Expansion priority when the item budget is exceeded (lower = kept first).
 TIER_SEED, TIER_DIRECT, TIER_STRUCTURE, TIER_CITING, TIER_SIBLING = range(5)
 
+# (tier, kind, cypher, reason template). Each query returns seed, uid, term, via.
 EXPANSIONS = [
     (
         TIER_DIRECT,
@@ -561,6 +562,16 @@ EXPANSIONS = [
         "subsection of {via}, which {seed} references",
     ),
     (
+        TIER_DIRECT,
+        "implied_reference_out",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})-[r:RELIES_ON]->(x:Clause)
+        RETURN seed, x.uid AS uid, null AS term, r.status AS via
+        """,
+        "implied reference (LLM, {via}) from {seed}",
+    ),
+    (
         TIER_STRUCTURE,
         "subsection",
         """
@@ -591,6 +602,16 @@ EXPANSIONS = [
         "references {seed}",
     ),
     (
+        TIER_CITING,
+        "implied_reference_in",
+        """
+        UNWIND $seeds AS seed
+        MATCH (:Clause {uid: seed})<-[r:RELIES_ON]-(x:Clause)
+        RETURN seed, x.uid AS uid, null AS term, r.status AS via
+        """,
+        "implied reference (LLM, {via}) to {seed}",
+    ),
+    (
         TIER_SIBLING,
         "sibling",
         """
@@ -602,31 +623,21 @@ EXPANSIONS = [
         "sibling of {seed} (both under {via})",
     ),
 ]
+ALL_KINDS = frozenset(kind for _, kind, _, _ in EXPANSIONS)
 
 
-def assemble_context(
+def collect_context(
     driver: Driver,
-    query: str,
-    doc_id: str,
-    k: int = DEFAULT_SEEDS,
-    max_items: int = DEFAULT_CONTEXT_ITEMS,
-    max_chars: int = DEFAULT_CONTEXT_CHARS,
-) -> dict:
-    """Vector search for seed clauses, then one graph hop around each seed
-    (definitions, references both ways, subsections, parent, siblings).
-    Every item says why it is included; output is bounded by max_items."""
-    q = (query or "").strip()
-    if not q:
-        raise QueryError("query is empty.")
-    k = max(1, min(int(k), MAX_LIMIT))
-    max_items = max(k, min(int(max_items), MAX_LIMIT))
-    doc = resolve_doc_id(driver, doc_id)
-    scored = _score_clauses_in_doc(driver, doc, _embed_query(q))
-    score_of = {r["uid"]: r for r in scored}
-    seeds = scored[:k]
-    section_of = {r["uid"]: r["section"] for r in scored}
-
-    # uid -> {tier, seed_rank, reasons, terms}
+    seeds: list[dict],
+    max_items: int,
+    kinds: frozenset[str] = ALL_KINDS,
+) -> tuple[list[dict], dict]:
+    """Seeds (rows with uid, section and best = {score, idx, start}, best first) plus
+    one graph hop of the given expansion kinds. Returns up to max_items items ranked by
+    (tier, seed rank, document order) - each with uid, section, text, position, tier,
+    why, kinds, terms, best (seeds only) - and {"total", "by_relation"} of what was cut."""
+    section_of = {r["uid"]: r["section"] for r in seeds}
+    rank_of = {r["uid"]: rank for rank, r in enumerate(seeds)}
     items: dict[str, dict] = {}
 
     def add(uid: str, tier: int, seed_rank: int, reason: str, kind: str, term: str | None):
@@ -641,16 +652,19 @@ def assemble_context(
         if term and term not in item["terms"]:
             item["terms"].append(term)
 
-    rank_of = {}
     for rank, r in enumerate(seeds):
-        rank_of[r["uid"]] = rank
         add(
             r["uid"], TIER_SEED, rank,
             f"vector match {_cosine(r['best']['score'])} (rank {rank + 1})", "seed", None,
         )
+        items[r["uid"]]["best"] = r["best"]
+        if "hits" in r:
+            items[r["uid"]]["hits"] = r["hits"]
 
     seed_uids = [r["uid"] for r in seeds]
     for tier, kind, cypher, template in EXPANSIONS:
+        if kind not in kinds:
+            continue
         for row in _read(driver, cypher, seeds=seed_uids):
             if row["uid"] == row["seed"]:
                 continue
@@ -659,44 +673,63 @@ def assemble_context(
             add(row["uid"], tier, rank_of[row["seed"]], reason, kind, row["term"])
 
     # Text for every candidate (expansions may be clauses without embedded chunks).
-    texts = {
-        r["uid"]: r
-        for r in _read(
-            driver,
-            "MATCH (c:Clause) WHERE c.uid IN $uids "
-            "RETURN c.uid AS uid, c.section AS section, c.text AS text, c.position AS position",
-            uids=list(items),
-        )
-    }
+    for r in _read(
+        driver,
+        "MATCH (c:Clause) WHERE c.uid IN $uids "
+        "RETURN c.uid AS uid, c.section AS section, c.text AS text, c.position AS position",
+        uids=list(items),
+    ):
+        items[r["uid"]].update(r)
     ranked = sorted(
-        items,
-        key=lambda u: (items[u]["tier"], items[u]["seed_rank"], clause_order(texts[u])),
+        items.values(), key=lambda i: (i["tier"], i["seed_rank"], clause_order(i))
     )
-    kept, dropped = ranked[:max_items], ranked[max_items:]
+    by_relation: dict[str, int] = {}
+    for item in ranked[max_items:]:
+        for kind in item["kinds"]:
+            by_relation[kind] = by_relation.get(kind, 0) + 1
+    return ranked[:max_items], {"total": len(ranked[max_items:]), "by_relation": by_relation}
 
-    omitted: dict[str, int] = {}
-    for uid in dropped:
-        for kind in items[uid]["kinds"]:
-            omitted[kind] = omitted.get(kind, 0) + 1
+
+def assemble_context(
+    driver: Driver,
+    query: str,
+    doc_id: str,
+    k: int = DEFAULT_SEEDS,
+    max_items: int = DEFAULT_CONTEXT_ITEMS,
+    max_chars: int = DEFAULT_CONTEXT_CHARS,
+) -> dict:
+    """Vector search for seed clauses, then one graph hop around each seed
+    (definitions, references both ways incl. LLM-found implied references,
+    subsections, parent, siblings). Every item says why it is included; output
+    is bounded by max_items."""
+    q = (query or "").strip()
+    if not q:
+        raise QueryError("query is empty.")
+    k = max(1, min(int(k), MAX_LIMIT))
+    max_items = max(k, min(int(max_items), MAX_LIMIT))
+    doc = resolve_doc_id(driver, doc_id)
+    scored = _score_clauses_in_doc(driver, doc, _embed_query(q))
+    score_of = {r["uid"]: r["best"]["score"] for r in scored}
+    seeds = scored[:k]
+    kept, omitted = collect_context(driver, seeds, max_items)
 
     out = []
-    for uid in sorted(kept, key=lambda u: clause_order(texts[u])):
-        item, row = items[uid], texts[uid]
+    for item in sorted(kept, key=clause_order):
         anchor = None
-        if uid in score_of and item["tier"] == TIER_SEED:
-            anchor = score_of[uid]["best"]["start"]
+        if item["tier"] == TIER_SEED:
+            anchor = item["best"]["start"]
         elif item["terms"]:
-            anchor = _definition_anchor(row["text"], item["terms"][0])
+            anchor = _definition_anchor(item["text"], item["terms"][0])
         why = item["why"][:MAX_REASONS]
         if len(item["why"]) > MAX_REASONS:
             why.append(f"... and {len(item['why']) - MAX_REASONS} more reasons")
         out.append(
             {
-                **provenance(doc, row["section"], uid),
+                **provenance(doc, item["section"], item["uid"]),
                 "role": "seed" if item["tier"] == TIER_SEED else "context",
-                "score": _cosine(score_of[uid]["best"]["score"]) if uid in score_of else None,
+                "score": _cosine(score_of[item["uid"]]) if item["uid"] in score_of else None,
                 "why": why,
-                **bounded_text(row["text"], max_chars, anchor),
+                **bounded_text(item["text"], max_chars, anchor),
             }
         )
 
@@ -704,11 +737,13 @@ def assemble_context(
         HUB_NOTE,
         "Items are in document order. role 'seed' = found by vector search; 'context' = "
         "added by one graph hop from a seed. score = cosine similarity to the query "
-        "(null for clauses without embedded text, e.g. bare headings).",
+        "(null for clauses without embedded text, e.g. bare headings). 'implied reference "
+        "(LLM, status)' edges come from step-6 regime extraction; status needs_review means "
+        "a deterministic check failed.",
     ]
-    if dropped:
+    if omitted["total"]:
         notes.append(
-            f"{len(dropped)} more related clauses omitted (max_items={max_items}); "
+            f"{omitted['total']} more related clauses omitted (max_items={max_items}); "
             "omitted counts by relation are in 'omitted'. Use get_clause_context on a "
             "seed to see its full neighbourhood."
         )
@@ -718,6 +753,102 @@ def assemble_context(
         "seeds": [{"section": r["section"], "score": _cosine(r["best"]["score"])} for r in seeds],
         "returned": len(out),
         "items": out,
-        "omitted": {"total": len(dropped), "by_relation": omitted},
+        "omitted": omitted,
+        "notes": notes,
+    }
+
+
+# ---------------------------------------------------------------- regimes (step 6)
+
+ROLE_ORDER = ("rule", "cap", "exclusion", "definition", "procedure", "remedy", "other")
+
+
+def get_regime(driver: Driver, doc_id: str, regime: str, model: str | None = None) -> dict:
+    """Members of one contractual regime as assigned by the LLM (step 6), grouped by
+    role, with verbatim evidence, status flags and provenance, plus implied references."""
+    from clause_graph import regimes  # lazy: regimes imports this module
+
+    reg = regimes.match_regime(regime)
+    doc = resolve_doc_id(driver, doc_id)
+    uid = regimes.regime_uid(doc, reg.name)
+    node = _read(driver, "MATCH (r:Regime {uid: $uid}) RETURN r.runs AS runs", uid=uid)
+    if not node:
+        raise QueryError(
+            f"Regime '{reg.name}' has not been extracted for {doc} yet. Run: uv run "
+            f"scripts/extract_regimes.py --doc '{doc[:30]}'"
+        )
+    rows = _read(
+        driver,
+        """
+        MATCH (c:Clause)-[e:PART_OF]->(:Regime {uid: $uid})
+        RETURN c.section AS section, c.uid AS uid, c.position AS position, e.role AS role,
+               e.evidence AS evidence, e.confidence AS confidence, e.status AS status,
+               e.checks AS checks, e.method AS method, e.model AS model,
+               e.prompt_version AS prompt_version
+        """,
+        uid=uid,
+    )
+    models = sorted({r["model"] for r in rows})
+    notes = [
+        "Assigned by an LLM from vector+graph candidates; every evidence quote was checked "
+        "verbatim against the clause text. status 'needs_review' = a deterministic check "
+        "failed or confidence < 0.6 (see checks); treat those as unverified.",
+    ]
+    if model is None and len(models) > 1:
+        from clause_graph import llm
+
+        default = llm.config().model
+        model = default if default in models else models[0]
+        notes.append(f"Edges from several models {models}; showing {model}. Pass model=... "
+                     "to see another.")
+    if model is not None:
+        rows = [r for r in rows if r["model"] == model]
+
+    by_role: dict[str, list[dict]] = {}
+    for r in sorted(rows, key=lambda r: (clause_order(r), r["role"])):
+        by_role.setdefault(r["role"], []).append(
+            {
+                **provenance(doc, r["section"], r["uid"]),
+                "evidence": r["evidence"],
+                "confidence": r["confidence"],
+                "status": r["status"],
+                "checks": r["checks"] or [],
+                "provenance": {"method": r["method"], "model": r["model"],
+                               "prompt_version": r["prompt_version"]},
+            }
+        )
+    relies = _read(
+        driver,
+        """
+        MATCH (a:Clause {doc_id: $doc})-[e:RELIES_ON {regime: $name}]->(b:Clause)
+        WHERE $model IS NULL OR e.model = $model
+        RETURN a.section AS from_section, b.section AS to_section, e.evidence AS evidence,
+               e.status AS status, e.checks AS checks, e.method AS method, e.model AS model,
+               e.prompt_version AS prompt_version
+        ORDER BY from_section, to_section
+        """,
+        doc=doc, name=reg.name, model=model,
+    )
+    if not rows:
+        notes.append("The LLM assigned no clauses: it found no such regime among the "
+                      f"candidates (runs: {node[0]['runs']}).")
+    return {
+        "doc_id": doc,
+        "regime": reg.name,
+        "description": reg.description,
+        "summary": {
+            "members": len(rows),
+            "accepted": sum(r["status"] == "accepted" for r in rows),
+            "needs_review": sum(r["status"] == "needs_review" for r in rows),
+            "relies_on": len(relies),
+        },
+        "members_by_role": {role: by_role[role] for role in ROLE_ORDER if role in by_role},
+        "relies_on": [
+            {**{k: r[k] for k in ("from_section", "to_section", "evidence", "status")},
+             "checks": r["checks"] or [],
+             "provenance": {"method": r["method"], "model": r["model"],
+                            "prompt_version": r["prompt_version"]}}
+            for r in relies
+        ],
         "notes": notes,
     }

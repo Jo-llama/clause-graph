@@ -15,3 +15,4 @@ Rules:
 | [0001](0001-knowledge-graph-not-vector-store-only.md) | Knowledge graph (Neo4j) instead of a vector store only | Accepted |
 | [0002](0002-deterministic-extraction-before-llm.md) | Deterministic extraction (regex) before any LLM, with per-contract metrics | Accepted |
 | [0003](0003-local-embeddings.md) | Local embeddings (Ollama + bge-m3); LLM APIs only for public CUAD data | Accepted |
+| [0004](0004-llm-regime-extraction.md) | LLM regime extraction: structured output, deterministic validation, minimised candidates | Accepted |

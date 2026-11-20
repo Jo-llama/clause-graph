@@ -85,7 +85,10 @@ def build_instructions() -> str:
         "item says why it is included. Manual flow: list_contracts -> search_clauses (meaning) "
         "or find_clauses (exact wording) -> get_clause_context (the clause, definitions of the "
         "terms it uses, clauses it cites or is cited by, subsections) -> get_definition for "
-        "any other term. Always cite doc_id and section from the results."
+        "any other term. For Liability, Termination, Assignment & Control, Restrictive "
+        "Covenants, Governing Law & Disputes and Confidentiality, get_regime returns the "
+        "clauses an LLM assigned to that regime, with verified evidence and status flags. "
+        "Always cite doc_id and section from the results."
     )
 
 
@@ -195,13 +198,32 @@ def assemble_context(
     Use this first for questions like "how is liability limited?". Takes the k
     best semantic matches as seeds, then adds one graph hop around each seed:
     definitions of terms it uses, clauses it references and their subsections,
-    clauses referencing it, its subsections, parent and siblings. Returns items in
+    clauses referencing it, its subsections, parent and siblings, and implied
+    references found by the LLM (step 6, with their status). Returns items in
     document order; each has doc_id, section, uid, role ("seed" or "context"),
     score, text, and "why" - the reasons it is included (e.g. "vector match 0.57
     (rank 1)", "defines 'Freight' used by 6.0", "referenced by 8.2"). At most
     max_items (default 25) items; "omitted" counts what was cut, by relation.
     """
     return queries.assemble_context(get_driver(), query, doc_id, k, max_items, max_chars)
+
+
+@server.tool(annotations=READ_ONLY)
+@safe
+def get_regime(doc_id: str, regime: str, model: str | None = None) -> dict:
+    """Get one contractual regime of a contract: which clauses form it and what role each plays.
+
+    Use this for questions like "how is liability handled in X?" when the regime has
+    been extracted (step 6). regime is one of: Liability, Termination, Assignment &
+    Control, Restrictive Covenants, Governing Law & Disputes, Confidentiality (a unique
+    prefix like "liab" works). Returns members grouped by role (rule, cap, exclusion,
+    definition, procedure, remedy, other), each with doc_id, section, uid, a verbatim
+    evidence quote, confidence, status ("accepted" or "needs_review" with the failed
+    checks) and provenance (method "llm", model, prompt_version); plus relies_on:
+    implied references between clauses ("the indemnifying party", "hereunder").
+    Read the full clauses with get_clause_context before relying on a member.
+    """
+    return queries.get_regime(get_driver(), doc_id, regime, model)
 
 
 if __name__ == "__main__":

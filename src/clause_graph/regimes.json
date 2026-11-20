@@ -1,0 +1,35 @@
+{
+  "_comment": "Contractual regimes for step-6 LLM extraction (ADR 0004). description is both the vector query for candidate clauses and the regime definition in the prompt. cuad_categories map to clause-harness golden.jsonl labels for the step-7 eval.",
+  "regimes": [
+    {
+      "name": "Liability",
+      "description": "Limitation and allocation of liability: caps on the amount of damages a party can be liable for, exclusions of indirect, consequential, incidental, special or punitive damages and lost profits, carve-outs from those limits (gross negligence, wilful misconduct, fraud, breach of confidentiality, indemnity obligations), indemnification obligations and procedures, insurance a party must carry and its required amounts, and time limits for bringing claims.",
+      "cuad_categories": ["Cap On Liability", "Uncapped Liability"]
+    },
+    {
+      "name": "Termination",
+      "description": "Ending the agreement: the right of a party to terminate for convenience or without cause on notice, termination for breach or insolvency, notice periods, cure periods, the effects and consequences of termination or expiry, and provisions that survive termination.",
+      "cuad_categories": ["Termination For Convenience"]
+    },
+    {
+      "name": "Assignment & Control",
+      "description": "Transfer of the agreement: restrictions on assigning, transferring or delegating the agreement or rights and obligations under it, the requirement of the other party's prior written consent, permitted assignments to affiliates or successors, and rights triggered by a change of control, merger, acquisition or sale of substantially all assets of a party.",
+      "cuad_categories": ["Anti-Assignment", "Change Of Control"]
+    },
+    {
+      "name": "Restrictive Covenants",
+      "description": "Restrictions on competition and exclusive dealing: exclusive rights granted within a territory, field or channel, undertakings to buy from or sell to only the other party, non-compete obligations, non-solicitation of customers or employees, and the duration and geographic scope of these restrictions.",
+      "cuad_categories": ["Exclusivity", "Non-Compete"]
+    },
+    {
+      "name": "Governing Law & Disputes",
+      "description": "Governing law and dispute resolution: which jurisdiction's law governs the agreement, choice of courts and venue, submission to jurisdiction, arbitration rules and seat, escalation or mediation procedures before litigation, waiver of jury trial, and injunctive or equitable relief.",
+      "cuad_categories": ["Governing Law"]
+    },
+    {
+      "name": "Confidentiality",
+      "description": "Confidentiality: the definition of confidential information and its exclusions, obligations not to disclose or use it except for the agreement, permitted disclosures (to employees, advisers, or as required by law), return or destruction of confidential information, and the duration of confidentiality obligations.",
+      "cuad_categories": []
+    }
+  ]
+}
