@@ -206,3 +206,178 @@ def test_assemble_context_is_bounded(driver, ollama):
     assert out["returned"] == 6
     assert out["omitted"]["total"] > 0 and out["omitted"]["by_relation"]
     assert sum(i["role"] == "seed" for i in out["items"]) == 5  # seeds are kept first
+
+
+# ------------------------------------------------------------- hop reserve (fixture graph, no Neo4j)
+
+import fake_graph as fg  # noqa: E402
+
+from clause_graph import regimes  # noqa: E402
+
+
+def collect(graph, max_items, hop_reserve=0, kinds=regimes.CANDIDATE_KINDS, k=None):
+    return queries.collect_context(graph, graph.seed_rows(k), max_items, kinds, hop_reserve)
+
+
+def seeds_and_hops(kept):
+    seeds = [i["uid"] for i in kept if i["tier"] == queries.TIER_SEED]
+    return seeds, [i["uid"] for i in kept if i["tier"] != queries.TIER_SEED]
+
+
+def test_assemble_context_unchanged_on_fixture_graph(monkeypatch):
+    """Regression pin: output as produced before hop_reserve existed (default 0)."""
+    g = fg.small_graph()
+    monkeypatch.setattr(queries, "_embed_query", lambda q: [0.0])
+    monkeypatch.setattr(queries, "resolve_doc_id", lambda d, x: fg.DOC)
+    monkeypatch.setattr(queries, "_score_clauses_in_doc", lambda d, doc, v: g.seed_rows())
+    out = queries.assemble_context(g, "q", "FIX", k=5, max_items=8)
+    assert [(i["section"], i["role"], i["score"], i["why"]) for i in out["items"]] == [
+        ("1", "seed", 0.9, ["vector match 0.9 (rank 1)"]),
+        ("2", "seed", 0.88, ["vector match 0.88 (rank 2)"]),
+        ("3", "seed", 0.86, ["vector match 0.86 (rank 3)"]),
+        ("4", "seed", 0.84, ["vector match 0.84 (rank 4)"]),
+        ("5", "seed", 0.82, ["vector match 0.82 (rank 5)"]),
+        ("6", "context", 0.8, ["referenced by 1"]),
+        ("20", "context", None, ["defines 'Losses' used by 1"]),
+        ("21", "context", None, ["referenced by 2"]),
+    ]
+    assert out["returned"] == 8
+    assert out["omitted"] == {"total": 3, "by_relation": {"parent": 1, "reference_in": 1,
+                                                          "sibling": 1}}
+    assert out["notes"][-1].startswith("3 more related clauses omitted (max_items=8)")
+
+
+def test_hop_reserve_zero_pinned_on_fixture_graphs():
+    """r = 0 is the plain ranked cut: seeds (a seed that is also a hop target ranks with
+    its citing seed), then direct hops, structure, citing; pinned uid lists and omitted."""
+    g = fg.small_graph()
+    kept, omitted = collect(g, 10)
+    assert [i["section"] for i in kept] == ["1", "6", "2", "3", "4", "5", "7", "8", "20", "21"]
+    assert omitted == {"total": 4, "by_relation": {"reference_out": 1, "parent": 1,
+                                                   "subsection": 1, "reference_in": 1}}
+    kept, omitted = collect(g, 10, kinds=queries.ALL_KINDS)
+    assert [i["section"] for i in kept] == ["1", "6", "2", "3", "4", "5", "7", "8", "20", "21"]
+    assert omitted["total"] == 5 and omitted["by_relation"]["sibling"] == 1
+    g = fg.wide_graph(12)
+    kept, omitted = collect(g, 9, kinds=queries.ALL_KINDS, k=8)
+    assert [i["section"] for i in kept] == [str(s) for s in range(1, 9)] + ["101"]
+    assert omitted == {"total": 7, "by_relation": {"reference_out": 7}}
+
+
+@pytest.mark.parametrize("max_items", [3, 6, 8, 10, 14, 20])
+def test_hop_reserve_zero_is_the_plain_ranked_cut(max_items):
+    g = fg.small_graph()
+    full, _ = collect(g, 100)
+    kept, omitted = collect(g, max_items)
+    assert [i["uid"] for i in kept] == [i["uid"] for i in full[:max_items]]
+    assert omitted["total"] == max(0, len(full) - max_items)
+    assert collect(g, max_items, hop_reserve=0)[1] == omitted
+
+
+def test_hop_reserve_keeps_reserved_hops_and_best_seeds():
+    g = fg.small_graph()  # 8 seeds; 6 hop targets in CANDIDATE_KINDS (seed 6 is not one)
+    full, _ = collect(g, 100)
+    n, m = seeds_and_hops(full)
+    assert (len(n), len(m)) == (8, 6)
+    pos = {i["uid"]: p for p, i in enumerate(full)}
+    for max_items in (4, 6, 10, 12):
+        for r in (0, 1, 2, 3, 5, 6, 10, 30):
+            kept, omitted = collect(g, max_items, hop_reserve=r)
+            seeds, hops = seeds_and_hops(kept)
+            assert len(kept) == max_items, (max_items, r)
+            assert len(hops) == min(len(m), max(min(r, len(m), max_items),
+                                                max_items - len(n))), (max_items, r)
+            assert seeds == n[: len(seeds)]  # every kept seed outranks every dropped seed
+            assert hops == m[: len(hops)]
+            assert [pos[i["uid"]] for i in kept] == sorted(pos[i["uid"]] for i in kept)
+            assert omitted["total"] == len(full) - max_items
+            assert omitted["by_relation"].get("seed", 0) == len(n) - len(seeds)
+
+
+def test_hop_reserve_has_no_effect_when_everything_fits():
+    g = fg.small_graph()  # 14 items in CANDIDATE_KINDS: 14 is exactly the budget
+    for max_items in (14, 100):
+        base = collect(g, max_items)
+        for r in (1, 5, 25, 10**6):
+            assert collect(g, max_items, hop_reserve=r) == base, (max_items, r)
+
+
+def test_omitted_counts_each_cut_item_once_per_kind():
+    g = fg.wide_graph(30)
+    for r in (0, 5, 10):
+        kept, om = collect(g, 25, hop_reserve=r)
+        assert len(kept) == 25 and om["total"] == 60 - 25
+        assert om["by_relation"] == {"seed": 30 - (25 - r), "reference_out": 30 - r}
+
+
+def test_seed_that_is_also_a_hop_target_uses_no_reserved_slot():
+    """Seed 6 is also referenced by seed 1: it stays a seed (tier and, as before, the
+    citing seed's rank), and the reserved slots all go to clauses that are not seeds."""
+    g = fg.small_graph()
+    kept, omitted = collect(g, 6, hop_reserve=3)
+    seeds, hops = seeds_and_hops(kept)
+    assert seeds == [fg.uid(s) for s in (1, 6, 2)]
+    assert hops == [fg.uid(s) for s in (20, 21, 22)]  # direct tier before parent/subsection
+    assert omitted["by_relation"] == {"seed": 5, "parent": 1, "reference_in": 1,
+                                      "subsection": 1}
+    item6 = next(i for i in collect(g, 100)[0] if i["uid"] == fg.uid(6))
+    assert item6["tier"] == queries.TIER_SEED and "reference_out" in item6["kinds"]
+
+
+def test_items_record_the_seeds_whose_hop_brought_them_in():
+    kept, _ = collect(fg.small_graph(), 100)
+    sources = {i["section"]: i["sources"] for i in kept}
+    assert sources["1"] == [] and sources["2"] == []  # pure seeds
+    assert sources["6"] == [fg.uid(1)]  # seed and hop target of seed 1
+    assert sources["20"] == [fg.uid(1)] and sources["22"] == [fg.uid(8)]
+
+
+# ---------------------------------------------------------------- reserve_hops (pure)
+
+
+def mk(n_seeds, n_hops):
+    return ([{"tier": queries.TIER_SEED, "n": f"s{i}"} for i in range(n_seeds)]
+            + [{"tier": queries.TIER_DIRECT, "n": f"h{i}"} for i in range(n_hops)])
+
+
+def names(items):
+    return [i["n"] for i in items]
+
+
+def test_reserve_hops_fills_free_slots_in_ranked_order():
+    ranked = [{"tier": queries.TIER_SEED, "n": i} for i in range(3)] + [
+        {"tier": queries.TIER_DIRECT, "n": 10 + i} for i in range(5)]
+    kept, cut = queries.reserve_hops(ranked, 6, hop_reserve=2)
+    assert [i["n"] for i in kept] == [0, 1, 2, 10, 11, 12]  # 3 seeds < 6 - 2: hop fills
+    assert [i["n"] for i in cut] == [13, 14]
+    kept, cut = queries.reserve_hops(ranked, 6, hop_reserve=9)
+    assert [i["n"] for i in kept] == [0, 10, 11, 12, 13, 14]
+
+
+@pytest.mark.parametrize("r", [0, 1, 5, 99])
+@pytest.mark.parametrize("cap", [0, 1])
+def test_reserve_hops_tiny_budgets(r, cap):
+    ranked = mk(3, 3)
+    kept, cut = queries.reserve_hops(ranked, cap, r)
+    assert len(kept) == cap and len(kept) + len(cut) == 6
+    if cap == 1:
+        assert kept == [ranked[3] if r >= 1 else ranked[0]]  # best hop if reserved, else best seed
+
+
+def test_reserve_hops_r_larger_than_max_items_means_hops_only():
+    kept, _ = queries.reserve_hops(mk(10, 10), 4, 50)
+    assert names(kept) == ["h0", "h1", "h2", "h3"]
+
+
+def test_reserve_hops_fewer_hops_than_reserve_gives_the_rest_to_seeds():
+    kept, cut = queries.reserve_hops(mk(10, 2), 6, 5)
+    assert names(kept) == ["s0", "s1", "s2", "s3", "h0", "h1"]
+    assert len(cut) == 6
+
+
+def test_reserve_hops_negative_reserve_is_the_plain_cut_and_input_is_not_mutated():
+    ranked = mk(5, 5)
+    snap = list(ranked)
+    assert queries.reserve_hops(ranked, 4, -3) == (ranked[:4], ranked[4:])
+    queries.reserve_hops(ranked, 5, 2)
+    assert ranked == snap

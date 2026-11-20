@@ -37,6 +37,11 @@ PROMPT_VERSION = "assign_regime_v1"
 
 DEFAULT_K = 15  # top-k chunks per regime description
 MAX_CANDIDATES = 25
+HOP_RESERVE = 0  # candidate slots reserved for graph-hop clauses (queries.reserve_hops)
+# Config names elide these values (the 7a selection, ADR 0006). Fixed literals, not
+# HOP_RESERVE / MAX_CANDIDATES, so a name keeps its meaning if a default ever changes.
+NAME_ELIDED_RESERVE = 0
+NAME_ELIDED_CAP = 25
 CANDIDATE_CHARS = 4000  # per candidate excerpt
 DEFINITION_CHARS = 600  # per defined-term excerpt in a definitions clause
 MAX_DEFINITIONS = 4  # term excerpts per definitions clause
@@ -101,6 +106,21 @@ class Candidate:
     excerpt: str  # what is sent to the LLM
     why: list[str]
     truncated: bool
+    kinds: tuple[str, ...] = ()  # "seed" and/or the graph-hop kinds that brought it in
+    sources: tuple[str, ...] = ()  # uids of the seeds whose graph hop brought it in
+
+
+def candidate_config_name(k: int, hop_reserve: int, max_candidates: int) -> str:
+    """Canonical name of a candidate selection (ADR 0006): "k{k}", plus "_r{r}" unless
+    r = 0, plus "_c{cap}" unless cap = 25. E.g. k15 (7a default), k25_r5, k15_c30,
+    k40_r10_c30. Used by eval_candidates.py (summary, sweep, CSV columns) and
+    extract_regimes.py (regime_metrics.csv candidate_config, regime_calls.jsonl)."""
+    name = f"k{k}"
+    if hop_reserve != NAME_ELIDED_RESERVE:
+        name += f"_r{hop_reserve}"
+    if max_candidates != NAME_ELIDED_CAP:
+        name += f"_c{max_candidates}"
+    return name
 
 
 TOP_CHUNKS = """
@@ -152,16 +172,19 @@ def candidates(
     vector: list[float],
     k: int = DEFAULT_K,
     max_candidates: int = MAX_CANDIDATES,
+    hop_reserve: int = HOP_RESERVE,
 ) -> tuple[list[Candidate], dict]:
     """Candidate clauses for one regime in one contract, in document order."""
     seeds = queries._read(driver, TOP_CHUNKS, doc=doc_id, vec=vector, k=k)
-    kept, omitted = queries.collect_context(driver, seeds, max_candidates, CANDIDATE_KINDS)
+    kept, omitted = queries.collect_context(
+        driver, seeds, max_candidates, CANDIDATE_KINDS, hop_reserve)
     out = []
     for item in sorted(kept, key=queries.clause_order):
         excerpt, truncated = _excerpt(item)
         out.append(
             Candidate(item["section"], item["uid"], item["text"] or "", excerpt,
-                      item["why"][:queries.MAX_REASONS], truncated)
+                      item["why"][:queries.MAX_REASONS], truncated,
+                      tuple(sorted(item["kinds"])), tuple(item["sources"]))
         )
     return out, omitted
 

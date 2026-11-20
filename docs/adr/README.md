@@ -17,3 +17,4 @@ Rules:
 | [0003](0003-local-embeddings.md) | Local embeddings (Ollama + bge-m3); LLM APIs only for public CUAD data | Accepted |
 | [0004](0004-llm-regime-extraction.md) | LLM regime extraction: structured output, deterministic validation, minimised candidates | Accepted |
 | [0005](0005-eval-against-cuad-gold.md) | Evaluation against CUAD gold: clause-level span matching, candidate recall as upper limit | Accepted |
+| [0006](0006-candidate-config-evaluation.md) | Candidate-config evaluation: hashed dev/test split, decision rule fixed in advance, report-only configs | Accepted |

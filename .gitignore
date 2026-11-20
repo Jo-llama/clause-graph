@@ -9,4 +9,5 @@ runs/*
 !runs/extraction_metrics_v1.csv
 !runs/eval_candidates.csv
 !runs/eval_candidates_summary.json
+!runs/eval_candidates_sweep.json
 .claude/settings.local.json

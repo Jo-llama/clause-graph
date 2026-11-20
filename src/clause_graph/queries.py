@@ -631,18 +631,28 @@ def collect_context(
     seeds: list[dict],
     max_items: int,
     kinds: frozenset[str] = ALL_KINDS,
+    hop_reserve: int = 0,
 ) -> tuple[list[dict], dict]:
     """Seeds (rows with uid, section and best = {score, idx, start}, best first) plus
     one graph hop of the given expansion kinds. Returns up to max_items items ranked by
     (tier, seed rank, document order) - each with uid, section, text, position, tier,
-    why, kinds, terms, best (seeds only) - and {"total", "by_relation"} of what was cut."""
+    why, kinds, terms, sources (uids of the seeds whose hop brought it in, in query
+    order; empty for a pure seed), best (seeds only) - and {"total", "by_relation"} of
+    what was cut.
+
+    hop_reserve = r > 0: when the budget is exceeded, up to r slots go to the
+    best-ranked graph-hop items, so extra seeds cannot push them all out. A clause that
+    is both a seed and a hop target is a seed and uses no reserved slot. Free slots are
+    filled in ranked order. r = 0 is the plain ranked cut."""
     section_of = {r["uid"]: r["section"] for r in seeds}
     rank_of = {r["uid"]: rank for rank, r in enumerate(seeds)}
     items: dict[str, dict] = {}
 
-    def add(uid: str, tier: int, seed_rank: int, reason: str, kind: str, term: str | None):
+    def add(uid: str, tier: int, seed_rank: int, reason: str, kind: str, term: str | None,
+            source: str | None = None):
         item = items.setdefault(
-            uid, {"tier": tier, "seed_rank": seed_rank, "why": [], "kinds": set(), "terms": []}
+            uid, {"tier": tier, "seed_rank": seed_rank, "why": [], "kinds": set(), "terms": [],
+                  "sources": []}
         )
         item["tier"] = min(item["tier"], tier)
         item["seed_rank"] = min(item["seed_rank"], seed_rank)
@@ -651,6 +661,8 @@ def collect_context(
         item["kinds"].add(kind)
         if term and term not in item["terms"]:
             item["terms"].append(term)
+        if source and source not in item["sources"]:
+            item["sources"].append(source)
 
     for rank, r in enumerate(seeds):
         add(
@@ -670,7 +682,7 @@ def collect_context(
                 continue
             seed_section = section_of.get(row["seed"]) or row["seed"].rsplit("#", 1)[-1]
             reason = template.format(term=row["term"], seed=seed_section, via=row["via"])
-            add(row["uid"], tier, rank_of[row["seed"]], reason, kind, row["term"])
+            add(row["uid"], tier, rank_of[row["seed"]], reason, kind, row["term"], row["seed"])
 
     # Text for every candidate (expansions may be clauses without embedded chunks).
     for r in _read(
@@ -683,11 +695,31 @@ def collect_context(
     ranked = sorted(
         items.values(), key=lambda i: (i["tier"], i["seed_rank"], clause_order(i))
     )
+    kept, cut = reserve_hops(ranked, max_items, hop_reserve)
     by_relation: dict[str, int] = {}
-    for item in ranked[max_items:]:
+    for item in cut:
         for kind in item["kinds"]:
             by_relation[kind] = by_relation.get(kind, 0) + 1
-    return ranked[:max_items], {"total": len(ranked[max_items:]), "by_relation": by_relation}
+    return kept, {"total": len(cut), "by_relation": by_relation}
+
+
+def reserve_hops(ranked: list[dict], max_items: int, hop_reserve: int = 0
+                 ) -> tuple[list[dict], list[dict]]:
+    """Split ranked items (seeds, tier TIER_SEED, first) into (kept, cut), both in ranked
+    order. Keeps seeds[:max_items - r] and hops[:r] with r = min(hop_reserve, hops,
+    max_items), then fills free slots from the rest in ranked order. Pure."""
+    if hop_reserve <= 0 or len(ranked) <= max_items:
+        return ranked[:max_items], ranked[max_items:]
+    seeds = [i for i in ranked if i["tier"] == TIER_SEED]
+    hops = [i for i in ranked if i["tier"] != TIER_SEED]
+    r = min(hop_reserve, len(hops), max_items)
+    chosen = {id(i) for i in seeds[: max_items - r] + hops[:r]}
+    for item in ranked:
+        if len(chosen) >= max_items:
+            break
+        chosen.add(id(item))
+    return ([i for i in ranked if id(i) in chosen],
+            [i for i in ranked if id(i) not in chosen])
 
 
 def assemble_context(

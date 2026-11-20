@@ -177,3 +177,143 @@ evidence; **span** = at least one clause holding the span is a candidate.
   The four spans with `present = false` are scored as gold; AULAMERICAN anti_assignment has
   nothing to match and does not count.
 - Confidentiality has no CUAD category ("no gold") and is not scored.
+
+### 8b. Candidate budget retune: reserved graph-hop slots (not adopted)
+
+Follow-up to 8 (spec approved 2026-11-20, user decisions A-E). Question: within the unchanged
+cap of 25 candidates, does reserving `r` slots for graph-hop candidates (and raising k) recover
+the hop hits that extra vector seeds push out? Everything at $0 (no LLM call). Defaults are
+**unchanged** (k = 15, `HOP_RESERVE = 0`). The evaluation method (fixed split, decision rule
+fixed in advance, report-only caps, config names) is ADR 0006; no CLAUDE.md change.
+
+Reproduce the grid (18 configs, ~3 min):
+`uv run scripts/eval_candidates.py --k 15 --k 25 --k 40 --hop-reserve 0 --hop-reserve 5
+--hop-reserve 10 --max-candidates 25 --max-candidates 30 --sweep-out runs/eval_candidates_sweep.json`.
+It writes only `runs/eval_candidates_sweep.json` (committed: every config with all, by_regime,
+by_health, by_split, by_split_regime, hits_by_hop_kind; the dev decision table and the rule) and
+the git-ignored `runs/eval_candidates_sweep_rows.csv` / `runs/eval_gold_clauses_sweep.csv`
+(per row / per gold clause, same columns as the 7a CSVs). It does not touch the 7a outputs.
+Reproduce those with the 7a command `uv run scripts/eval_candidates.py --k 15 --k 25 --k 40`:
+`runs/eval_candidates.csv` / `_summary.json` (committed) and `runs/eval_gold_clauses.csv`
+(r = 0, cap 25) with the new columns; their numbers are identical to 7a (checked field by
+field; micro clause 282/330 at k = 15). Config names are canonical (ADR 0006): `k{k}`, plus
+`_r{r}` unless r = 0, plus `_c{cap}` unless cap = 25 (`k15`, `k25_r5`, `k15_c30`, ...); the
+same config has the same name in the 7a summary, the sweep file and `regime_metrics.csv`.
+Note: the summary key `by_k.<k>` named in section 8 is now `by_config.k<k>` (`by_k.15` ->
+`by_config.k15`). Two runs of each command are byte-identical.
+
+**Correction to the 7a crowding count.** From `runs/eval_gold_clauses.csv`: 10 gold clauses
+are hop hits at k = 15 and misses at k = 25 (Liability 5, Restrictive Covenants 2, Termination
+2, Assignment & Control 1); 3 of them come back as seeds at k = 40 (RC 1, Termination 2), so 7
+are misses at both k = 25 and k = 40 (Liability 5, RC 1, A&C 1). The "7" was right for "both";
+the breakdown summing to 10 is the k = 25 count. Of the 15 hop hits at k = 15, the other 8
+become seed hits at k = 25 or 40 (5 already at k = 25). 11 gold clauses are gained as seeds at
+k = 25. The 25 cap is reached in 156 / 217 / 225 of 375 pairs at k = 15 / 25 / 40.
+
+**Mechanism** (`queries.reserve_hops`, `collect_context(..., hop_reserve)`): after the existing
+(tier, seed rank, document order) ranking, keep seeds[:25 - r] and hops[:r] with
+r = min(hop_reserve, hops), fill free slots in ranked order. A clause that is both a seed and a
+hop target is a seed. r = 0 is the old cut (assemble_context / MCP unchanged, regression test).
+At k = 15 a reserve <= 10 changes nothing (at most 15 seeds): k15 = k15_r5 = k15_r10 on the
+live graph.
+
+**Split** (`evaluate.split_of`): test if `int(sha256(doc_id)[:8], 16) % 4 == 0`: 59 dev / 16
+test contracts; with gold: dev 57 contracts, 262 gold clauses; test 14 contracts, 68 gold
+clauses.
+
+**Dev decision** (rule fixed before the sweep, `evaluate.decide`): highest dev micro clause
+recall with dev chars_sent_ratio <= 0.39, dev mean_candidates <= 20.0, no regime losing more
+than 1 dev gold clause vs k15; ties to fewer chars; adopt only with >= 2 dev gold clauses
+gain. Cap-30 rows are report-only and never eligible.
+
+| config | dev hits | dev micro | gain | worst regime loss | dev chars sent | dev mean cand | eligible / fails |
+|---|---|---|---|---|---|---|---|
+| k15 (7a) | 222/262 | 0.8473 | +0 | 0 | 0.3467 | 18.57 | yes |
+| k15_r5 | 222/262 | 0.8473 | +0 | 0 | 0.3467 | 18.57 | yes |
+| k15_r10 | 222/262 | 0.8473 | +0 | 0 | 0.3467 | 18.57 | yes |
+| k25 | 224/262 | 0.855 | +2 | 3 | 0.3956 | 19.84 | chars; regime loss Liability |
+| k25_r5 | 225/262 | 0.8588 | +3 | 1 | 0.3956 | 19.84 | chars |
+| k25_r10 | 219/262 | 0.8359 | -3 | 2 | 0.3879 | 19.84 | regime loss RC |
+| k40 | 225/262 | 0.8588 | +3 | 3 | 0.4119 | 19.9 | chars; regime loss Liability |
+| k40_r5 | 222/262 | 0.8473 | +0 | 1 | 0.4054 | 19.9 | chars |
+| k40_r10 | 215/262 | 0.8206 | -7 | 3 | 0.3959 | 19.9 | chars; regime loss A&C, Liability, RC |
+
+Result: only the three (identical) k = 15 configs are eligible; the best gains 0 dev gold
+clauses, so **the defaults stay k = 15, r = 0, cap 25**. The closest contender, k25_r5, misses
+the dev chars limit by 0.0056 and would also have failed the adoption targets on all 75
+contracts (clause hits 284 < 286; Liability 0.7792 < 0.8052; chars sent 0.3923 > 0.39).
+
+**Before / after** (all 75 contracts; "after" = chosen config = k15, so identical to 7a;
+micro; `by_config.k15` in the summary):
+
+| Regime | clause | excerpt | span | hop hits | mean cand | chars sent | dev hits | test hits |
+|---|---|---|---|---|---|---|---|---|
+| Liability | 0.8052 | 0.7662 | 0.8417 | 7 | 18.64 | 0.3602 | 50/62 | 12/15 |
+| Termination | 0.871 | 0.7419 | 0.8684 | 2 | 18.56 | 0.3456 | 23/25 | 4/6 |
+| Assignment & Control | 0.9213 | 0.8427 | 0.9205 | 1 | 18.57 | 0.3333 | 66/71 | 16/18 |
+| Restrictive Covenants | 0.6935 | 0.5645 | 0.7753 | 5 | 18.56 | 0.3519 | 27/46 | 16/16 |
+| Governing Law & Disputes | 0.9577 | 0.8873 | 0.9583 | 0 | 18.55 | 0.3497 | 56/58 | 12/13 |
+| **All** | **0.8545** | **0.7727** | **0.8732** | 15 | 18.58 | 0.3481 | 222/262 (0.8473) | 60/68 (0.8824) |
+
+Test split: the chosen config is the baseline, so test recall is unchanged (60/68). For
+reference, k25_r5 has 59/68 on test.
+
+**All configs, 75 contracts** (micro; cap-30 rows are REPORT-ONLY, never selectable; they show
+the recall vs chars-sent trade-off of a larger cap for a later decision):
+
+| config | clause hits | clause | excerpt | span | hop hits | mean cand | chars sent | high_caps chars | test hits |
+|---|---|---|---|---|---|---|---|---|---|
+| k15 / k15_r5 / k15_r10 | 282 | 0.8545 | 0.7727 | 0.8732 | 15 | 18.58 | 0.3481 | 0.2115 | 60 |
+| k25 | 283 | 0.8576 | 0.7818 | 0.8691 | 0 | 19.78 | 0.3904 | 0.2437 | 59 |
+| k25_r5 | 284 | 0.8606 | 0.7848 | 0.8793 | 6 | 19.78 | 0.3923 | 0.2469 | 59 |
+| k25_r10 | 280 | 0.8485 | 0.7697 | 0.8712 | 11 | 19.78 | 0.3847 | 0.2377 | 61 |
+| k40 | 285 | 0.8636 | 0.7879 | 0.8753 | 0 | 19.89 | 0.4117 | 0.262 | 60 |
+| k40_r5 | 282 | 0.8545 | 0.7818 | 0.8814 | 5 | 19.89 | 0.4048 | 0.2609 | 60 |
+| k40_r10 | 274 | 0.8303 | 0.7576 | 0.8507 | 8 | 19.89 | 0.3952 | 0.2565 | 59 |
+| k15_c30 / k15_r5_c30 / k15_r10_c30 (report-only) | 286 | 0.8667 | 0.7848 | 0.8834 | 19 | 20.21 | 0.3678 | 0.238 | 61 |
+| k25_c30 / k25_r5_c30 (report-only) | 289 | 0.8758 | 0.8 | 0.8896 | 6 | 22.43 | 0.4295 | 0.2883 | 61 |
+| k25_r10_c30 (report-only) | 290 | 0.8788 | 0.8 | 0.8957 | 11 | 22.43 | 0.4245 | 0.283 | 62 |
+| k40_c30 (report-only) | 291 | 0.8818 | 0.8061 | 0.8896 | 0 | 22.63 | 0.4517 | 0.3039 | 62 |
+| k40_r5_c30 (report-only) | 291 | 0.8818 | 0.8061 | 0.9018 | 5 | 22.63 | 0.4467 | 0.3052 | 61 |
+| k40_r10_c30 (report-only) | 287 | 0.8697 | 0.797 | 0.8978 | 8 | 22.63 | 0.4373 | 0.3014 | 62 |
+
+k15 at cap 30 is the only report-only row that keeps every regime at or above 7a and stays
+within the chars limits; it fails only mean_candidates (20.21 > 20.0). Whether 5 more slots are worth
+~2 points of chars sent is a decision for later, not made here.
+
+**Why reserving slots did not help.** At k >= 25 the reserve does not add slots, it moves them
+from seeds of rank ~16-25 to hops, and those seeds are gold just as often: vs k15, k25_r5
+gains 7 and loses 5 gold clauses, k25_r10 gains 4 and loses 6, k40_r10 gains 6 and loses 14.
+The existing ranking puts tier before seed rank, so a reserved slot can go to a direct hop
+(definition, outgoing reference) of a seed that was itself cut. Kept hops none of whose
+source seeds is kept (`hops_from_cut_seeds` per row in `runs/eval_candidates_sweep_rows.csv`,
+`all.hops_from_cut_seeds` / `share_hops_from_cut_seeds` per config in the sweep file):
+k25_r5 22 of 1,155 (1.9 %), k25_r10 222 of 1,959 (11.3 %), k40_r5 92 of 911 (10.1 %), k40_r10
+362 of 1,619 (22.4 %); 0 for every r = 0 config and at k = 15 (seeds rank before hops). An
+earlier hand count gave 2 / 13 / 12 / 29 %; the reproducible numbers above replace it.
+
+**Hop kind of the clauses lost to crowding** (user decision C; `<config>_hop_kind` in
+`runs/eval_gold_clauses.csv` for the 7a configs and `runs/eval_gold_clauses_sweep.csv` for the
+grid, `hits_by_hop_kind` in the summary and the sweep file). The 10 hop hits at k15
+that are misses at k25, by the relation that brought them in at k = 15: reference_in 3,
+definition 2, reference_in+subsection_of_reference 2, reference_out 1,
+subsection_of_reference 1, definition+reference_in 1. 7 are in `ok` contracts, 3 in
+`high_caps`; 7 dev, 3 test. k25_r5 recovers 5 of the 10 (as hops), k25_r10 recovers 9;
+the A&C reference_in clause (high_caps) is lost in every k >= 25 config, cap 30 included. All 15 hop hits at
+k = 15: definition 4, reference_in 3, reference_out 2, subsection_of_reference 2,
+reference_in+subsection_of_reference 2, definition+reference_in 1, parent 1 (no
+`subsection` hits).
+
+**Ceiling.** 34 of 330 gold clauses are missed at every k of 7a (15/25/40), so no budget or
+ordering change over those configs can exceed 296/330 = 0.897 micro clause recall. Across the
+whole 18-config grid 28 are missed everywhere (union of cap-25 configs: 299/330 = 0.906).
+These clauses are out of scope here (regime descriptions, excerpts, extraction).
+
+**Confidentiality** (no gold): `extract_regimes.py --dry-run --regime Confidentiality` before
+and after is identical (defaults unchanged): 75 calls, mean 18.59 candidates, 34.9 % of
+contract chars sent, within the 20.0 / 0.39 ceilings. For reference k25_r5: 19.77 / 39.15 %.
+The dry run needs no API key and makes no call (`runs/regime_calls.jsonl` unchanged, no
+`runs/llm_cache/`).
+
+Possible later levers (not done, need their own spec): rank hops of kept seeds before hops of
+cut seeds; k = 15 at cap 30; the 34 always-missed clauses.

@@ -18,10 +18,13 @@ Gold is defined by the evidence spans, not by the "present" flag.
    span_hits()          - secondary, span level: a matched span is hit when ANY of its
                           clauses is a candidate (a span in N clauses is N gold clauses but
                           one gold span).
+4. split_of(), decide(), adoption_check() - candidate-budget retune: a hashed dev/test split,
+                          the selection rule fixed before the sweep, and the adoption targets.
 """
 
 from __future__ import annotations
 
+import hashlib
 import json
 import re
 from dataclasses import dataclass
@@ -311,3 +314,116 @@ def per_contract(rows: list[tuple[str, int, int]]) -> list[tuple[int, int]]:
         acc[0] += h
         acc[1] += g
     return [(h, g) for h, g in out.values()]
+
+
+# ---------------------------------------------------------------- 4. retune: split + rule
+
+
+def split_of(doc_id: str) -> str:
+    """Deterministic dev/test split, no database: about 1 in 4 contracts is "test"."""
+    h = int(hashlib.sha256(doc_id.encode("utf-8")).hexdigest()[:8], 16)
+    return "test" if h % 4 == 0 else "dev"
+
+
+# Fixed before the sweep was run (retune spec, criterion 11); do not tune on results.
+DECISION_RULE = {
+    "max_chars_sent_ratio": 0.39,  # dev
+    "max_mean_candidates": 20.0,  # dev
+    "max_regime_loss": 1,  # gold clauses lost per regime vs the baseline, dev
+    "min_gain": 2,  # dev gold clauses over the baseline needed to change the defaults
+}
+
+
+def decide(configs: dict[str, dict], baseline: str, rule: dict = DECISION_RULE) -> dict:
+    """Pick a candidate config on the dev split.
+
+    configs: name -> {"report_only": bool, "dev": {hits, gold_clauses, micro,
+    candidate_chars, chars_sent_ratio, mean_candidates, by_regime: {regime: {hits}}}},
+    in grid order. Highest dev micro clause recall among eligible configs (not report-only,
+    within the cost limits, no regime losing more than max_regime_loss gold clauses);
+    ties go to fewer chars sent, then grid order. The defaults change only if the best
+    config beats the baseline by at least min_gain dev gold clauses."""
+    base = configs[baseline]["dev"]
+    table = []
+    for idx, (name, c) in enumerate(configs.items()):
+        d = c["dev"]
+        fails = []
+        if c["report_only"]:
+            fails.append("report_only")
+        if d["chars_sent_ratio"] is not None and d["chars_sent_ratio"] > rule["max_chars_sent_ratio"]:
+            fails.append("chars_sent_ratio")
+        if d["mean_candidates"] > rule["max_mean_candidates"]:
+            fails.append("mean_candidates")
+        losses = {
+            regime: b["hits"] - d["by_regime"].get(regime, {}).get("hits", 0)
+            for regime, b in base["by_regime"].items()
+        }
+        too_many = sorted(r for r, n in losses.items() if n > rule["max_regime_loss"])
+        if too_many:
+            fails.append("regime_loss: " + ", ".join(too_many))
+        table.append({
+            "config": name, "order": idx, "report_only": c["report_only"],
+            "hits": d["hits"], "gold_clauses": d["gold_clauses"], "micro": d["micro"],
+            "gain": d["hits"] - base["hits"],
+            "max_regime_loss": max(losses.values(), default=0),
+            "chars_sent_ratio": d["chars_sent_ratio"], "candidate_chars": d["candidate_chars"],
+            "mean_candidates": d["mean_candidates"], "eligible": not fails, "fails": fails,
+        })
+    eligible = sorted((t for t in table if t["eligible"]),
+                      key=lambda t: (-t["hits"], t["candidate_chars"], t["order"]))
+    best = eligible[0] if eligible else None
+    adopt = bool(best and best["config"] != baseline and best["gain"] >= rule["min_gain"])
+    if best is None:
+        reason = "no eligible config"
+    elif adopt:
+        reason = f"{best['config']} beats {baseline} by {best['gain']} dev gold clauses"
+    else:
+        reason = (f"best eligible config {best['config']} gains {best['gain']} dev gold "
+                  f"clauses (< {rule['min_gain']}): defaults unchanged")
+    for t in table:
+        del t["order"]
+    return {"rule": rule, "baseline": baseline, "best": best["config"] if best else None,
+            "adopt": adopt, "chosen": best["config"] if adopt else baseline,
+            "reason": reason, "table": table}
+
+
+ADOPTION_TARGETS = {
+    "min_extra_gold_clauses": 4,  # all contracts, vs the baseline (282/330 -> >= 0.865)
+    "max_chars_sent_ratio": 0.39,
+    "max_mean_candidates": 20.0,
+    "max_high_caps_chars_sent_ratio": 0.25,
+    "max_test_loss": 1,  # gold clauses on the test split vs the baseline
+}
+
+
+def adoption_check(chosen: dict, baseline: dict, targets: dict = ADOPTION_TARGETS) -> dict:
+    """Retune criteria 12-16 on all contracts. chosen / baseline: per-config summaries with
+    all, by_regime, by_health and by_split (scripts/eval_candidates.py). Every target is
+    listed with its value, threshold and result; adopt only if all pass."""
+    a, b = chosen["all"], baseline["all"]
+    out = []
+
+    def check(name, value, op, threshold):
+        ok = value is not None and threshold is not None and (
+            value >= threshold if op == ">=" else value <= threshold if op == "<=" else value > threshold)
+        out.append({"target": name, "value": value, "op": op, "threshold": threshold,
+                    "pass": bool(ok)})
+
+    check("12 clause hits (all)", a["hits"], ">=", b["hits"] + targets["min_extra_gold_clauses"])
+    check("12 micro excerpt recall", a["micro_excerpt"], ">=", b["micro_excerpt"])
+    check("12 span recall", a["span_recall"], ">=", b["span_recall"])
+    for regime, r in baseline["by_regime"].items():
+        if r["micro"] is not None:
+            check(f"13 micro clause recall {regime}",
+                  chosen["by_regime"].get(regime, {}).get("micro"), ">=", r["micro"])
+    check("14 hits_hop", a["hits_hop"], ">", 0)
+    check("15 chars_sent_ratio", a["chars_sent_ratio"], "<=", targets["max_chars_sent_ratio"])
+    check("15 mean_candidates", a["mean_candidates"], "<=", targets["max_mean_candidates"])
+    hc = chosen["by_health"].get("high_caps")
+    if hc:
+        check("15 high_caps chars_sent_ratio", hc["chars_sent_ratio"], "<=",
+              targets["max_high_caps_chars_sent_ratio"])
+    bt, ct = baseline["by_split"].get("test"), chosen["by_split"].get("test")
+    if bt and ct:
+        check("16 test clause hits", ct["hits"], ">=", bt["hits"] - targets["max_test_loss"])
+    return {"targets": targets, "checks": out, "pass": all(c["pass"] for c in out)}

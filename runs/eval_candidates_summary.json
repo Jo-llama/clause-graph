@@ -5,11 +5,44 @@
    25,
    40
   ],
-  "max_candidates": 25,
+  "hop_reserve": [
+   0
+  ],
+  "max_candidates": [
+   25
+  ],
+  "configs": [
+   {
+    "name": "k15",
+    "k": 15,
+    "hop_reserve": 0,
+    "max_candidates": 25,
+    "report_only": false
+   },
+   {
+    "name": "k25",
+    "k": 25,
+    "hop_reserve": 0,
+    "max_candidates": 25,
+    "report_only": false
+   },
+   {
+    "name": "k40",
+    "k": 40,
+    "hop_reserve": 0,
+    "max_candidates": 25,
+    "report_only": false
+   }
+  ],
   "candidate_chars": 4000,
   "contracts": 75,
   "embed_model": "bge-m3",
-  "high_caps_threshold": 10
+  "high_caps_threshold": 10,
+  "split": {
+   "rule": "test if int(sha256(doc_id)[:8], 16) % 4 == 0",
+   "dev": 59,
+   "test": 16
+  }
  },
  "categories": {
   "unmapped": [],
@@ -76,8 +109,12 @@
    "evidence_spans": 1
   }
  ],
- "by_k": {
-  "15": {
+ "by_config": {
+  "k15": {
+   "k": 15,
+   "hop_reserve": 0,
+   "max_candidates": 25,
+   "report_only": false,
    "all": {
     "pairs_scored": 220,
     "pairs_no_gold": 155,
@@ -96,7 +133,11 @@
     "span_hits": 427,
     "span_recall": 0.8732,
     "mean_candidates": 18.58,
-    "chars_sent_ratio": 0.3481
+    "candidate_chars": 7287204,
+    "chars_sent_ratio": 0.3481,
+    "hops_kept": 2255,
+    "hops_from_cut_seeds": 0,
+    "share_hops_from_cut_seeds": 0.0
    },
    "by_regime": {
     "Liability": {
@@ -116,7 +157,11 @@
      "span_hits": 117,
      "span_recall": 0.8417,
      "mean_candidates": 18.64,
-     "chars_sent_ratio": 0.3602
+     "candidate_chars": 1507736,
+     "chars_sent_ratio": 0.3602,
+     "hops_kept": 458,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Termination": {
      "pairs_scored": 25,
@@ -135,7 +180,11 @@
      "span_hits": 33,
      "span_recall": 0.8684,
      "mean_candidates": 18.56,
-     "chars_sent_ratio": 0.3456
+     "candidate_chars": 1446972,
+     "chars_sent_ratio": 0.3456,
+     "hops_kept": 447,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Assignment & Control": {
      "pairs_scored": 54,
@@ -154,7 +203,11 @@
      "span_hits": 139,
      "span_recall": 0.9205,
      "mean_candidates": 18.57,
-     "chars_sent_ratio": 0.3333
+     "candidate_chars": 1395226,
+     "chars_sent_ratio": 0.3333,
+     "hops_kept": 444,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Restrictive Covenants": {
      "pairs_scored": 31,
@@ -173,7 +226,11 @@
      "span_hits": 69,
      "span_recall": 0.7753,
      "mean_candidates": 18.56,
-     "chars_sent_ratio": 0.3519
+     "candidate_chars": 1473131,
+     "chars_sent_ratio": 0.3519,
+     "hops_kept": 453,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Governing Law & Disputes": {
      "pairs_scored": 67,
@@ -192,7 +249,11 @@
      "span_hits": 69,
      "span_recall": 0.9583,
      "mean_candidates": 18.55,
-     "chars_sent_ratio": 0.3497
+     "candidate_chars": 1464139,
+     "chars_sent_ratio": 0.3497,
+     "hops_kept": 453,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     }
    },
    "by_category": {
@@ -213,7 +274,11 @@
      "span_hits": 93,
      "span_recall": 0.8304,
      "mean_candidates": 18.64,
-     "chars_sent_ratio": 0.3602
+     "candidate_chars": 1507736,
+     "chars_sent_ratio": 0.3602,
+     "hops_kept": 458,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "uncapped_liability": {
      "pairs_scored": 17,
@@ -232,7 +297,11 @@
      "span_hits": 24,
      "span_recall": 0.8889,
      "mean_candidates": 18.64,
-     "chars_sent_ratio": 0.3602
+     "candidate_chars": 1507736,
+     "chars_sent_ratio": 0.3602,
+     "hops_kept": 458,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "termination_for_convenience": {
      "pairs_scored": 25,
@@ -251,7 +320,11 @@
      "span_hits": 33,
      "span_recall": 0.8684,
      "mean_candidates": 18.56,
-     "chars_sent_ratio": 0.3456
+     "candidate_chars": 1446972,
+     "chars_sent_ratio": 0.3456,
+     "hops_kept": 447,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "anti_assignment": {
      "pairs_scored": 54,
@@ -270,7 +343,11 @@
      "span_hits": 96,
      "span_recall": 0.9412,
      "mean_candidates": 18.57,
-     "chars_sent_ratio": 0.3333
+     "candidate_chars": 1395226,
+     "chars_sent_ratio": 0.3333,
+     "hops_kept": 444,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "change_of_control": {
      "pairs_scored": 20,
@@ -289,7 +366,11 @@
      "span_hits": 43,
      "span_recall": 0.8776,
      "mean_candidates": 18.57,
-     "chars_sent_ratio": 0.3333
+     "candidate_chars": 1395226,
+     "chars_sent_ratio": 0.3333,
+     "hops_kept": 444,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "exclusivity": {
      "pairs_scored": 25,
@@ -308,7 +389,11 @@
      "span_hits": 42,
      "span_recall": 0.75,
      "mean_candidates": 18.56,
-     "chars_sent_ratio": 0.3519
+     "candidate_chars": 1473131,
+     "chars_sent_ratio": 0.3519,
+     "hops_kept": 453,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "non_compete": {
      "pairs_scored": 16,
@@ -327,7 +412,11 @@
      "span_hits": 27,
      "span_recall": 0.8182,
      "mean_candidates": 18.56,
-     "chars_sent_ratio": 0.3519
+     "candidate_chars": 1473131,
+     "chars_sent_ratio": 0.3519,
+     "hops_kept": 453,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "governing_law": {
      "pairs_scored": 67,
@@ -346,7 +435,11 @@
      "span_hits": 69,
      "span_recall": 0.9583,
      "mean_candidates": 18.55,
-     "chars_sent_ratio": 0.3497
+     "candidate_chars": 1464139,
+     "chars_sent_ratio": 0.3497,
+     "hops_kept": 453,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     }
    },
    "by_health": {
@@ -368,7 +461,11 @@
      "span_hits": 93,
      "span_recall": 0.6992,
      "mean_candidates": 24.32,
-     "chars_sent_ratio": 0.2115
+     "candidate_chars": 1336436,
+     "chars_sent_ratio": 0.2115,
+     "hops_kept": 487,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "ok": {
      "pairs_scored": 164,
@@ -388,7 +485,11 @@
      "span_hits": 296,
      "span_recall": 0.9308,
      "mean_candidates": 19.53,
-     "chars_sent_ratio": 0.4011
+     "candidate_chars": 5602907,
+     "chars_sent_ratio": 0.4011,
+     "hops_kept": 1768,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "sections_0": {
      "pairs_scored": 19,
@@ -408,11 +509,336 @@
      "span_hits": 38,
      "span_recall": 1.0,
      "mean_candidates": 2.49,
-     "chars_sent_ratio": 0.5406
+     "candidate_chars": 347861,
+     "chars_sent_ratio": 0.5406,
+     "hops_kept": 0,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": null
+    }
+   },
+   "by_split": {
+    "dev": {
+     "pairs_scored": 173,
+     "pairs_no_gold": 122,
+     "gold_clauses": 262,
+     "hits": 222,
+     "micro": 0.8473,
+     "macro": 0.9265,
+     "contracts_scored": 57,
+     "hits_seed": 212,
+     "hits_hop": 10,
+     "misses": 40,
+     "hits_excerpt": 203,
+     "micro_excerpt": 0.7748,
+     "macro_excerpt": 0.8574,
+     "spans_matched": 381,
+     "span_hits": 330,
+     "span_recall": 0.8661,
+     "mean_candidates": 18.57,
+     "candidate_chars": 5664374,
+     "chars_sent_ratio": 0.3467,
+     "hops_kept": 1792,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
+    },
+    "test": {
+     "pairs_scored": 47,
+     "pairs_no_gold": 33,
+     "gold_clauses": 68,
+     "hits": 60,
+     "micro": 0.8824,
+     "macro": 0.9107,
+     "contracts_scored": 14,
+     "hits_seed": 55,
+     "hits_hop": 5,
+     "misses": 8,
+     "hits_excerpt": 52,
+     "micro_excerpt": 0.7647,
+     "macro_excerpt": 0.825,
+     "spans_matched": 108,
+     "span_hits": 97,
+     "span_recall": 0.8981,
+     "mean_candidates": 18.59,
+     "candidate_chars": 1622830,
+     "chars_sent_ratio": 0.3532,
+     "hops_kept": 463,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
+    }
+   },
+   "by_split_regime": {
+    "dev": {
+     "Liability": {
+      "pairs_scored": 34,
+      "pairs_no_gold": 25,
+      "gold_clauses": 62,
+      "hits": 50,
+      "micro": 0.8065,
+      "macro": 0.8765,
+      "hits_seed": 45,
+      "hits_hop": 5,
+      "misses": 12,
+      "hits_excerpt": 47,
+      "micro_excerpt": 0.7581,
+      "macro_excerpt": 0.8251,
+      "spans_matched": 113,
+      "span_hits": 95,
+      "span_recall": 0.8407,
+      "mean_candidates": 18.66,
+      "candidate_chars": 1177139,
+      "chars_sent_ratio": 0.3603,
+      "hops_kept": 364,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Termination": {
+      "pairs_scored": 20,
+      "pairs_no_gold": 39,
+      "gold_clauses": 25,
+      "hits": 23,
+      "micro": 0.92,
+      "macro": 0.95,
+      "hits_seed": 22,
+      "hits_hop": 1,
+      "misses": 2,
+      "hits_excerpt": 20,
+      "micro_excerpt": 0.8,
+      "macro_excerpt": 0.8,
+      "spans_matched": 31,
+      "span_hits": 28,
+      "span_recall": 0.9032,
+      "mean_candidates": 18.49,
+      "candidate_chars": 1126009,
+      "chars_sent_ratio": 0.3446,
+      "hops_kept": 353,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Assignment & Control": {
+      "pairs_scored": 42,
+      "pairs_no_gold": 17,
+      "gold_clauses": 71,
+      "hits": 66,
+      "micro": 0.9296,
+      "macro": 0.9603,
+      "hits_seed": 65,
+      "hits_hop": 1,
+      "misses": 5,
+      "hits_excerpt": 61,
+      "micro_excerpt": 0.8592,
+      "macro_excerpt": 0.871,
+      "spans_matched": 115,
+      "span_hits": 107,
+      "span_recall": 0.9304,
+      "mean_candidates": 18.58,
+      "candidate_chars": 1078497,
+      "chars_sent_ratio": 0.3301,
+      "hops_kept": 353,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Restrictive Covenants": {
+      "pairs_scored": 23,
+      "pairs_no_gold": 36,
+      "gold_clauses": 46,
+      "hits": 27,
+      "micro": 0.587,
+      "macro": 0.8478,
+      "hits_seed": 24,
+      "hits_hop": 3,
+      "misses": 19,
+      "hits_excerpt": 23,
+      "micro_excerpt": 0.5,
+      "macro_excerpt": 0.6957,
+      "spans_matched": 63,
+      "span_hits": 43,
+      "span_recall": 0.6825,
+      "mean_candidates": 18.56,
+      "candidate_chars": 1145667,
+      "chars_sent_ratio": 0.3506,
+      "hops_kept": 360,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Governing Law & Disputes": {
+      "pairs_scored": 54,
+      "pairs_no_gold": 5,
+      "gold_clauses": 58,
+      "hits": 56,
+      "micro": 0.9655,
+      "macro": 0.963,
+      "hits_seed": 56,
+      "hits_hop": 0,
+      "misses": 2,
+      "hits_excerpt": 52,
+      "micro_excerpt": 0.8966,
+      "macro_excerpt": 0.8889,
+      "spans_matched": 59,
+      "span_hits": 57,
+      "span_recall": 0.9661,
+      "mean_candidates": 18.58,
+      "candidate_chars": 1137062,
+      "chars_sent_ratio": 0.348,
+      "hops_kept": 362,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     }
+    },
+    "test": {
+     "Liability": {
+      "pairs_scored": 9,
+      "pairs_no_gold": 7,
+      "gold_clauses": 15,
+      "hits": 12,
+      "micro": 0.8,
+      "macro": 0.8148,
+      "hits_seed": 10,
+      "hits_hop": 2,
+      "misses": 3,
+      "hits_excerpt": 12,
+      "micro_excerpt": 0.8,
+      "macro_excerpt": 0.8148,
+      "spans_matched": 26,
+      "span_hits": 22,
+      "span_recall": 0.8462,
+      "mean_candidates": 18.56,
+      "candidate_chars": 330597,
+      "chars_sent_ratio": 0.3598,
+      "hops_kept": 94,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Termination": {
+      "pairs_scored": 5,
+      "pairs_no_gold": 11,
+      "gold_clauses": 6,
+      "hits": 4,
+      "micro": 0.6667,
+      "macro": 0.8,
+      "hits_seed": 3,
+      "hits_hop": 1,
+      "misses": 2,
+      "hits_excerpt": 3,
+      "micro_excerpt": 0.5,
+      "macro_excerpt": 0.6,
+      "spans_matched": 7,
+      "span_hits": 5,
+      "span_recall": 0.7143,
+      "mean_candidates": 18.81,
+      "candidate_chars": 320963,
+      "chars_sent_ratio": 0.3493,
+      "hops_kept": 94,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Assignment & Control": {
+      "pairs_scored": 12,
+      "pairs_no_gold": 4,
+      "gold_clauses": 18,
+      "hits": 16,
+      "micro": 0.8889,
+      "macro": 0.9306,
+      "hits_seed": 16,
+      "hits_hop": 0,
+      "misses": 2,
+      "hits_excerpt": 14,
+      "micro_excerpt": 0.7778,
+      "macro_excerpt": 0.8472,
+      "spans_matched": 36,
+      "span_hits": 32,
+      "span_recall": 0.8889,
+      "mean_candidates": 18.56,
+      "candidate_chars": 316729,
+      "chars_sent_ratio": 0.3447,
+      "hops_kept": 91,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Restrictive Covenants": {
+      "pairs_scored": 8,
+      "pairs_no_gold": 8,
+      "gold_clauses": 16,
+      "hits": 16,
+      "micro": 1.0,
+      "macro": 1.0,
+      "hits_seed": 14,
+      "hits_hop": 2,
+      "misses": 0,
+      "hits_excerpt": 12,
+      "micro_excerpt": 0.75,
+      "macro_excerpt": 0.9,
+      "spans_matched": 26,
+      "span_hits": 26,
+      "span_recall": 1.0,
+      "mean_candidates": 18.56,
+      "candidate_chars": 327464,
+      "chars_sent_ratio": 0.3564,
+      "hops_kept": 93,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Governing Law & Disputes": {
+      "pairs_scored": 13,
+      "pairs_no_gold": 3,
+      "gold_clauses": 13,
+      "hits": 12,
+      "micro": 0.9231,
+      "macro": 0.9231,
+      "hits_seed": 12,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 11,
+      "micro_excerpt": 0.8462,
+      "macro_excerpt": 0.8462,
+      "spans_matched": 13,
+      "span_hits": 12,
+      "span_recall": 0.9231,
+      "mean_candidates": 18.44,
+      "candidate_chars": 327077,
+      "chars_sent_ratio": 0.356,
+      "hops_kept": 91,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     }
+    }
+   },
+   "hits_by_hop_kind": {
+    "all": {
+     "definition": 4,
+     "definition+reference_in": 1,
+     "parent": 1,
+     "reference_in": 3,
+     "reference_in+subsection_of_reference": 2,
+     "reference_out": 2,
+     "subsection_of_reference": 2
+    },
+    "by_regime": {
+     "Restrictive Covenants": {
+      "definition": 3,
+      "reference_out": 2
+     },
+     "Liability": {
+      "definition": 1,
+      "parent": 1,
+      "reference_in": 2,
+      "reference_in+subsection_of_reference": 2,
+      "subsection_of_reference": 1
+     },
+     "Termination": {
+      "definition+reference_in": 1,
+      "subsection_of_reference": 1
+     },
+     "Assignment & Control": {
+      "reference_in": 1
+     }
     }
    }
   },
-  "25": {
+  "k25": {
+   "k": 25,
+   "hop_reserve": 0,
+   "max_candidates": 25,
+   "report_only": false,
    "all": {
     "pairs_scored": 220,
     "pairs_no_gold": 155,
@@ -431,7 +857,11 @@
     "span_hits": 425,
     "span_recall": 0.8691,
     "mean_candidates": 19.78,
-    "chars_sent_ratio": 0.3904
+    "candidate_chars": 8172047,
+    "chars_sent_ratio": 0.3904,
+    "hops_kept": 287,
+    "hops_from_cut_seeds": 0,
+    "share_hops_from_cut_seeds": 0.0
    },
    "by_regime": {
     "Liability": {
@@ -451,7 +881,11 @@
      "span_hits": 111,
      "span_recall": 0.7986,
      "mean_candidates": 19.76,
-     "chars_sent_ratio": 0.4
+     "candidate_chars": 1674461,
+     "chars_sent_ratio": 0.4,
+     "hops_kept": 60,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Termination": {
      "pairs_scored": 25,
@@ -470,7 +904,11 @@
      "span_hits": 35,
      "span_recall": 0.9211,
      "mean_candidates": 19.8,
-     "chars_sent_ratio": 0.3888
+     "candidate_chars": 1627506,
+     "chars_sent_ratio": 0.3888,
+     "hops_kept": 61,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Assignment & Control": {
      "pairs_scored": 54,
@@ -489,7 +927,11 @@
      "span_hits": 140,
      "span_recall": 0.9272,
      "mean_candidates": 19.8,
-     "chars_sent_ratio": 0.3781
+     "candidate_chars": 1582765,
+     "chars_sent_ratio": 0.3781,
+     "hops_kept": 51,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Restrictive Covenants": {
      "pairs_scored": 31,
@@ -508,7 +950,11 @@
      "span_hits": 69,
      "span_recall": 0.7753,
      "mean_candidates": 19.77,
-     "chars_sent_ratio": 0.3953
+     "candidate_chars": 1654683,
+     "chars_sent_ratio": 0.3953,
+     "hops_kept": 55,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Governing Law & Disputes": {
      "pairs_scored": 67,
@@ -527,7 +973,11 @@
      "span_hits": 70,
      "span_recall": 0.9722,
      "mean_candidates": 19.77,
-     "chars_sent_ratio": 0.39
+     "candidate_chars": 1632632,
+     "chars_sent_ratio": 0.39,
+     "hops_kept": 60,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     }
    },
    "by_category": {
@@ -548,7 +998,11 @@
      "span_hits": 90,
      "span_recall": 0.8036,
      "mean_candidates": 19.76,
-     "chars_sent_ratio": 0.4
+     "candidate_chars": 1674461,
+     "chars_sent_ratio": 0.4,
+     "hops_kept": 60,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "uncapped_liability": {
      "pairs_scored": 17,
@@ -567,7 +1021,11 @@
      "span_hits": 21,
      "span_recall": 0.7778,
      "mean_candidates": 19.76,
-     "chars_sent_ratio": 0.4
+     "candidate_chars": 1674461,
+     "chars_sent_ratio": 0.4,
+     "hops_kept": 60,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "termination_for_convenience": {
      "pairs_scored": 25,
@@ -586,7 +1044,11 @@
      "span_hits": 35,
      "span_recall": 0.9211,
      "mean_candidates": 19.8,
-     "chars_sent_ratio": 0.3888
+     "candidate_chars": 1627506,
+     "chars_sent_ratio": 0.3888,
+     "hops_kept": 61,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "anti_assignment": {
      "pairs_scored": 54,
@@ -605,7 +1067,11 @@
      "span_hits": 97,
      "span_recall": 0.951,
      "mean_candidates": 19.8,
-     "chars_sent_ratio": 0.3781
+     "candidate_chars": 1582765,
+     "chars_sent_ratio": 0.3781,
+     "hops_kept": 51,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "change_of_control": {
      "pairs_scored": 20,
@@ -624,7 +1090,11 @@
      "span_hits": 43,
      "span_recall": 0.8776,
      "mean_candidates": 19.8,
-     "chars_sent_ratio": 0.3781
+     "candidate_chars": 1582765,
+     "chars_sent_ratio": 0.3781,
+     "hops_kept": 51,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "exclusivity": {
      "pairs_scored": 25,
@@ -643,7 +1113,11 @@
      "span_hits": 42,
      "span_recall": 0.75,
      "mean_candidates": 19.77,
-     "chars_sent_ratio": 0.3953
+     "candidate_chars": 1654683,
+     "chars_sent_ratio": 0.3953,
+     "hops_kept": 55,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "non_compete": {
      "pairs_scored": 16,
@@ -662,7 +1136,11 @@
      "span_hits": 27,
      "span_recall": 0.8182,
      "mean_candidates": 19.77,
-     "chars_sent_ratio": 0.3953
+     "candidate_chars": 1654683,
+     "chars_sent_ratio": 0.3953,
+     "hops_kept": 55,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "governing_law": {
      "pairs_scored": 67,
@@ -681,7 +1159,11 @@
      "span_hits": 70,
      "span_recall": 0.9722,
      "mean_candidates": 19.77,
-     "chars_sent_ratio": 0.39
+     "candidate_chars": 1632632,
+     "chars_sent_ratio": 0.39,
+     "hops_kept": 60,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     }
    },
    "by_health": {
@@ -703,7 +1185,11 @@
      "span_hits": 95,
      "span_recall": 0.7143,
      "mean_candidates": 25.0,
-     "chars_sent_ratio": 0.2437
+     "candidate_chars": 1540057,
+     "chars_sent_ratio": 0.2437,
+     "hops_kept": 61,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "ok": {
      "pairs_scored": 164,
@@ -723,7 +1209,11 @@
      "span_hits": 292,
      "span_recall": 0.9182,
      "mean_candidates": 20.96,
-     "chars_sent_ratio": 0.4495
+     "candidate_chars": 6278896,
+     "chars_sent_ratio": 0.4495,
+     "hops_kept": 226,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "sections_0": {
      "pairs_scored": 19,
@@ -743,11 +1233,309 @@
      "span_hits": 38,
      "span_recall": 1.0,
      "mean_candidates": 2.57,
-     "chars_sent_ratio": 0.5488
+     "candidate_chars": 353094,
+     "chars_sent_ratio": 0.5488,
+     "hops_kept": 0,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": null
     }
+   },
+   "by_split": {
+    "dev": {
+     "pairs_scored": 173,
+     "pairs_no_gold": 122,
+     "gold_clauses": 262,
+     "hits": 224,
+     "micro": 0.855,
+     "macro": 0.9289,
+     "contracts_scored": 57,
+     "hits_seed": 224,
+     "hits_hop": 0,
+     "misses": 38,
+     "hits_excerpt": 206,
+     "micro_excerpt": 0.7863,
+     "macro_excerpt": 0.8633,
+     "spans_matched": 381,
+     "span_hits": 329,
+     "span_recall": 0.8635,
+     "mean_candidates": 19.84,
+     "candidate_chars": 6463221,
+     "chars_sent_ratio": 0.3956,
+     "hops_kept": 260,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
+    },
+    "test": {
+     "pairs_scored": 47,
+     "pairs_no_gold": 33,
+     "gold_clauses": 68,
+     "hits": 59,
+     "micro": 0.8676,
+     "macro": 0.8994,
+     "contracts_scored": 14,
+     "hits_seed": 59,
+     "hits_hop": 0,
+     "misses": 9,
+     "hits_excerpt": 52,
+     "micro_excerpt": 0.7647,
+     "macro_excerpt": 0.828,
+     "spans_matched": 108,
+     "span_hits": 96,
+     "span_recall": 0.8889,
+     "mean_candidates": 19.57,
+     "candidate_chars": 1708826,
+     "chars_sent_ratio": 0.372,
+     "hops_kept": 27,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
+    }
+   },
+   "by_split_regime": {
+    "dev": {
+     "Liability": {
+      "pairs_scored": 34,
+      "pairs_no_gold": 25,
+      "gold_clauses": 62,
+      "hits": 47,
+      "micro": 0.7581,
+      "macro": 0.7991,
+      "hits_seed": 47,
+      "hits_hop": 0,
+      "misses": 15,
+      "hits_excerpt": 45,
+      "micro_excerpt": 0.7258,
+      "macro_excerpt": 0.755,
+      "spans_matched": 113,
+      "span_hits": 89,
+      "span_recall": 0.7876,
+      "mean_candidates": 19.83,
+      "candidate_chars": 1317273,
+      "chars_sent_ratio": 0.4032,
+      "hops_kept": 55,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Termination": {
+      "pairs_scored": 20,
+      "pairs_no_gold": 39,
+      "gold_clauses": 25,
+      "hits": 24,
+      "micro": 0.96,
+      "macro": 0.95,
+      "hits_seed": 24,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 21,
+      "micro_excerpt": 0.84,
+      "macro_excerpt": 0.8,
+      "spans_matched": 31,
+      "span_hits": 30,
+      "span_recall": 0.9677,
+      "mean_candidates": 19.85,
+      "candidate_chars": 1288715,
+      "chars_sent_ratio": 0.3944,
+      "hops_kept": 55,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Assignment & Control": {
+      "pairs_scored": 42,
+      "pairs_no_gold": 17,
+      "gold_clauses": 71,
+      "hits": 67,
+      "micro": 0.9437,
+      "macro": 0.9643,
+      "hits_seed": 67,
+      "hits_hop": 0,
+      "misses": 4,
+      "hits_excerpt": 61,
+      "micro_excerpt": 0.8592,
+      "macro_excerpt": 0.871,
+      "spans_matched": 115,
+      "span_hits": 108,
+      "span_recall": 0.9391,
+      "mean_candidates": 19.85,
+      "candidate_chars": 1249472,
+      "chars_sent_ratio": 0.3824,
+      "hops_kept": 48,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Restrictive Covenants": {
+      "pairs_scored": 23,
+      "pairs_no_gold": 36,
+      "gold_clauses": 46,
+      "hits": 29,
+      "micro": 0.6304,
+      "macro": 0.8437,
+      "hits_seed": 29,
+      "hits_hop": 0,
+      "misses": 17,
+      "hits_excerpt": 26,
+      "micro_excerpt": 0.5652,
+      "macro_excerpt": 0.7133,
+      "spans_matched": 63,
+      "span_hits": 44,
+      "span_recall": 0.6984,
+      "mean_candidates": 19.83,
+      "candidate_chars": 1323574,
+      "chars_sent_ratio": 0.4051,
+      "hops_kept": 50,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Governing Law & Disputes": {
+      "pairs_scored": 54,
+      "pairs_no_gold": 5,
+      "gold_clauses": 58,
+      "hits": 57,
+      "micro": 0.9828,
+      "macro": 0.9815,
+      "hits_seed": 57,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 53,
+      "micro_excerpt": 0.9138,
+      "macro_excerpt": 0.9074,
+      "spans_matched": 59,
+      "span_hits": 58,
+      "span_recall": 0.9831,
+      "mean_candidates": 19.83,
+      "candidate_chars": 1284187,
+      "chars_sent_ratio": 0.393,
+      "hops_kept": 52,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     }
+    },
+    "test": {
+     "Liability": {
+      "pairs_scored": 9,
+      "pairs_no_gold": 7,
+      "gold_clauses": 15,
+      "hits": 12,
+      "micro": 0.8,
+      "macro": 0.8148,
+      "hits_seed": 12,
+      "hits_hop": 0,
+      "misses": 3,
+      "hits_excerpt": 12,
+      "micro_excerpt": 0.8,
+      "macro_excerpt": 0.8148,
+      "spans_matched": 26,
+      "span_hits": 22,
+      "span_recall": 0.8462,
+      "mean_candidates": 19.5,
+      "candidate_chars": 357188,
+      "chars_sent_ratio": 0.3887,
+      "hops_kept": 5,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Termination": {
+      "pairs_scored": 5,
+      "pairs_no_gold": 11,
+      "gold_clauses": 6,
+      "hits": 4,
+      "micro": 0.6667,
+      "macro": 0.7,
+      "hits_seed": 4,
+      "hits_hop": 0,
+      "misses": 2,
+      "hits_excerpt": 4,
+      "micro_excerpt": 0.6667,
+      "macro_excerpt": 0.7,
+      "spans_matched": 7,
+      "span_hits": 5,
+      "span_recall": 0.7143,
+      "mean_candidates": 19.62,
+      "candidate_chars": 338791,
+      "chars_sent_ratio": 0.3687,
+      "hops_kept": 6,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Assignment & Control": {
+      "pairs_scored": 12,
+      "pairs_no_gold": 4,
+      "gold_clauses": 18,
+      "hits": 16,
+      "micro": 0.8889,
+      "macro": 0.9306,
+      "hits_seed": 16,
+      "hits_hop": 0,
+      "misses": 2,
+      "hits_excerpt": 14,
+      "micro_excerpt": 0.7778,
+      "macro_excerpt": 0.8472,
+      "spans_matched": 36,
+      "span_hits": 32,
+      "span_recall": 0.8889,
+      "mean_candidates": 19.62,
+      "candidate_chars": 333293,
+      "chars_sent_ratio": 0.3627,
+      "hops_kept": 3,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Restrictive Covenants": {
+      "pairs_scored": 8,
+      "pairs_no_gold": 8,
+      "gold_clauses": 16,
+      "hits": 15,
+      "micro": 0.9375,
+      "macro": 0.875,
+      "hits_seed": 15,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 11,
+      "micro_excerpt": 0.6875,
+      "macro_excerpt": 0.775,
+      "spans_matched": 26,
+      "span_hits": 25,
+      "span_recall": 0.9615,
+      "mean_candidates": 19.56,
+      "candidate_chars": 331109,
+      "chars_sent_ratio": 0.3604,
+      "hops_kept": 5,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Governing Law & Disputes": {
+      "pairs_scored": 13,
+      "pairs_no_gold": 3,
+      "gold_clauses": 13,
+      "hits": 12,
+      "micro": 0.9231,
+      "macro": 0.9231,
+      "hits_seed": 12,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 11,
+      "micro_excerpt": 0.8462,
+      "macro_excerpt": 0.8462,
+      "spans_matched": 13,
+      "span_hits": 12,
+      "span_recall": 0.9231,
+      "mean_candidates": 19.56,
+      "candidate_chars": 348445,
+      "chars_sent_ratio": 0.3792,
+      "hops_kept": 8,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     }
+    }
+   },
+   "hits_by_hop_kind": {
+    "all": {},
+    "by_regime": {}
    }
   },
-  "40": {
+  "k40": {
+   "k": 40,
+   "hop_reserve": 0,
+   "max_candidates": 25,
+   "report_only": false,
    "all": {
     "pairs_scored": 220,
     "pairs_no_gold": 155,
@@ -766,7 +1554,11 @@
     "span_hits": 428,
     "span_recall": 0.8753,
     "mean_candidates": 19.89,
-    "chars_sent_ratio": 0.4117
+    "candidate_chars": 8618160,
+    "chars_sent_ratio": 0.4117,
+    "hops_kept": 87,
+    "hops_from_cut_seeds": 0,
+    "share_hops_from_cut_seeds": 0.0
    },
    "by_regime": {
     "Liability": {
@@ -786,7 +1578,11 @@
      "span_hits": 110,
      "span_recall": 0.7914,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4258
+     "candidate_chars": 1782385,
+     "chars_sent_ratio": 0.4258,
+     "hops_kept": 17,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Termination": {
      "pairs_scored": 25,
@@ -805,7 +1601,11 @@
      "span_hits": 36,
      "span_recall": 0.9474,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4122
+     "candidate_chars": 1725497,
+     "chars_sent_ratio": 0.4122,
+     "hops_kept": 18,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Assignment & Control": {
      "pairs_scored": 54,
@@ -824,7 +1624,11 @@
      "span_hits": 142,
      "span_recall": 0.9404,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.3998
+     "candidate_chars": 1673595,
+     "chars_sent_ratio": 0.3998,
+     "hops_kept": 18,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Restrictive Covenants": {
      "pairs_scored": 31,
@@ -843,7 +1647,11 @@
      "span_hits": 70,
      "span_recall": 0.7865,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4136
+     "candidate_chars": 1731587,
+     "chars_sent_ratio": 0.4136,
+     "hops_kept": 16,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "Governing Law & Disputes": {
      "pairs_scored": 67,
@@ -862,7 +1670,11 @@
      "span_hits": 70,
      "span_recall": 0.9722,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4073
+     "candidate_chars": 1705096,
+     "chars_sent_ratio": 0.4073,
+     "hops_kept": 18,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     }
    },
    "by_category": {
@@ -883,7 +1695,11 @@
      "span_hits": 89,
      "span_recall": 0.7946,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4258
+     "candidate_chars": 1782385,
+     "chars_sent_ratio": 0.4258,
+     "hops_kept": 17,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "uncapped_liability": {
      "pairs_scored": 17,
@@ -902,7 +1718,11 @@
      "span_hits": 21,
      "span_recall": 0.7778,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4258
+     "candidate_chars": 1782385,
+     "chars_sent_ratio": 0.4258,
+     "hops_kept": 17,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "termination_for_convenience": {
      "pairs_scored": 25,
@@ -921,7 +1741,11 @@
      "span_hits": 36,
      "span_recall": 0.9474,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4122
+     "candidate_chars": 1725497,
+     "chars_sent_ratio": 0.4122,
+     "hops_kept": 18,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "anti_assignment": {
      "pairs_scored": 54,
@@ -940,7 +1764,11 @@
      "span_hits": 97,
      "span_recall": 0.951,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.3998
+     "candidate_chars": 1673595,
+     "chars_sent_ratio": 0.3998,
+     "hops_kept": 18,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "change_of_control": {
      "pairs_scored": 20,
@@ -959,7 +1787,11 @@
      "span_hits": 45,
      "span_recall": 0.9184,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.3998
+     "candidate_chars": 1673595,
+     "chars_sent_ratio": 0.3998,
+     "hops_kept": 18,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "exclusivity": {
      "pairs_scored": 25,
@@ -978,7 +1810,11 @@
      "span_hits": 41,
      "span_recall": 0.7321,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4136
+     "candidate_chars": 1731587,
+     "chars_sent_ratio": 0.4136,
+     "hops_kept": 16,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "non_compete": {
      "pairs_scored": 16,
@@ -997,7 +1833,11 @@
      "span_hits": 29,
      "span_recall": 0.8788,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4136
+     "candidate_chars": 1731587,
+     "chars_sent_ratio": 0.4136,
+     "hops_kept": 16,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "governing_law": {
      "pairs_scored": 67,
@@ -1016,7 +1856,11 @@
      "span_hits": 70,
      "span_recall": 0.9722,
      "mean_candidates": 19.89,
-     "chars_sent_ratio": 0.4073
+     "candidate_chars": 1705096,
+     "chars_sent_ratio": 0.4073,
+     "hops_kept": 18,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     }
    },
    "by_health": {
@@ -1038,7 +1882,11 @@
      "span_hits": 95,
      "span_recall": 0.7143,
      "mean_candidates": 25.0,
-     "chars_sent_ratio": 0.262
+     "candidate_chars": 1655475,
+     "chars_sent_ratio": 0.262,
+     "hops_kept": 0,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": null
     },
     "ok": {
      "pairs_scored": 164,
@@ -1058,7 +1906,11 @@
      "span_hits": 295,
      "span_recall": 0.9277,
      "mean_candidates": 21.1,
-     "chars_sent_ratio": 0.4731
+     "candidate_chars": 6609591,
+     "chars_sent_ratio": 0.4731,
+     "hops_kept": 87,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
     },
     "sections_0": {
      "pairs_scored": 19,
@@ -1078,8 +1930,302 @@
      "span_hits": 38,
      "span_recall": 1.0,
      "mean_candidates": 2.57,
-     "chars_sent_ratio": 0.5488
+     "candidate_chars": 353094,
+     "chars_sent_ratio": 0.5488,
+     "hops_kept": 0,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": null
     }
+   },
+   "by_split": {
+    "dev": {
+     "pairs_scored": 173,
+     "pairs_no_gold": 122,
+     "gold_clauses": 262,
+     "hits": 225,
+     "micro": 0.8588,
+     "macro": 0.9322,
+     "contracts_scored": 57,
+     "hits_seed": 225,
+     "hits_hop": 0,
+     "misses": 37,
+     "hits_excerpt": 207,
+     "micro_excerpt": 0.7901,
+     "macro_excerpt": 0.8666,
+     "spans_matched": 381,
+     "span_hits": 330,
+     "span_recall": 0.8661,
+     "mean_candidates": 19.9,
+     "candidate_chars": 6729593,
+     "chars_sent_ratio": 0.4119,
+     "hops_kept": 82,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
+    },
+    "test": {
+     "pairs_scored": 47,
+     "pairs_no_gold": 33,
+     "gold_clauses": 68,
+     "hits": 60,
+     "micro": 0.8824,
+     "macro": 0.9107,
+     "contracts_scored": 14,
+     "hits_seed": 60,
+     "hits_hop": 0,
+     "misses": 8,
+     "hits_excerpt": 53,
+     "micro_excerpt": 0.7794,
+     "macro_excerpt": 0.8393,
+     "spans_matched": 108,
+     "span_hits": 98,
+     "span_recall": 0.9074,
+     "mean_candidates": 19.88,
+     "candidate_chars": 1888567,
+     "chars_sent_ratio": 0.4111,
+     "hops_kept": 5,
+     "hops_from_cut_seeds": 0,
+     "share_hops_from_cut_seeds": 0.0
+    }
+   },
+   "by_split_regime": {
+    "dev": {
+     "Liability": {
+      "pairs_scored": 34,
+      "pairs_no_gold": 25,
+      "gold_clauses": 62,
+      "hits": 47,
+      "micro": 0.7581,
+      "macro": 0.7991,
+      "hits_seed": 47,
+      "hits_hop": 0,
+      "misses": 15,
+      "hits_excerpt": 45,
+      "micro_excerpt": 0.7258,
+      "macro_excerpt": 0.755,
+      "spans_matched": 113,
+      "span_hits": 89,
+      "span_recall": 0.7876,
+      "mean_candidates": 19.9,
+      "candidate_chars": 1401037,
+      "chars_sent_ratio": 0.4288,
+      "hops_kept": 16,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Termination": {
+      "pairs_scored": 20,
+      "pairs_no_gold": 39,
+      "gold_clauses": 25,
+      "hits": 25,
+      "micro": 1.0,
+      "macro": 1.0,
+      "hits_seed": 25,
+      "hits_hop": 0,
+      "misses": 0,
+      "hits_excerpt": 22,
+      "micro_excerpt": 0.88,
+      "macro_excerpt": 0.85,
+      "spans_matched": 31,
+      "span_hits": 31,
+      "span_recall": 1.0,
+      "mean_candidates": 19.9,
+      "candidate_chars": 1339541,
+      "chars_sent_ratio": 0.41,
+      "hops_kept": 17,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Assignment & Control": {
+      "pairs_scored": 42,
+      "pairs_no_gold": 17,
+      "gold_clauses": 71,
+      "hits": 67,
+      "micro": 0.9437,
+      "macro": 0.9643,
+      "hits_seed": 67,
+      "hits_hop": 0,
+      "misses": 4,
+      "hits_excerpt": 61,
+      "micro_excerpt": 0.8592,
+      "macro_excerpt": 0.871,
+      "spans_matched": 115,
+      "span_hits": 108,
+      "span_recall": 0.9391,
+      "mean_candidates": 19.9,
+      "candidate_chars": 1297644,
+      "chars_sent_ratio": 0.3971,
+      "hops_kept": 17,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Restrictive Covenants": {
+      "pairs_scored": 23,
+      "pairs_no_gold": 36,
+      "gold_clauses": 46,
+      "hits": 29,
+      "micro": 0.6304,
+      "macro": 0.8551,
+      "hits_seed": 29,
+      "hits_hop": 0,
+      "misses": 17,
+      "hits_excerpt": 26,
+      "micro_excerpt": 0.5652,
+      "macro_excerpt": 0.7246,
+      "spans_matched": 63,
+      "span_hits": 44,
+      "span_recall": 0.6984,
+      "mean_candidates": 19.9,
+      "candidate_chars": 1361299,
+      "chars_sent_ratio": 0.4166,
+      "hops_kept": 15,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Governing Law & Disputes": {
+      "pairs_scored": 54,
+      "pairs_no_gold": 5,
+      "gold_clauses": 58,
+      "hits": 57,
+      "micro": 0.9828,
+      "macro": 0.9815,
+      "hits_seed": 57,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 53,
+      "micro_excerpt": 0.9138,
+      "macro_excerpt": 0.9074,
+      "spans_matched": 59,
+      "span_hits": 58,
+      "span_recall": 0.9831,
+      "mean_candidates": 19.9,
+      "candidate_chars": 1330072,
+      "chars_sent_ratio": 0.4071,
+      "hops_kept": 17,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     }
+    },
+    "test": {
+     "Liability": {
+      "pairs_scored": 9,
+      "pairs_no_gold": 7,
+      "gold_clauses": 15,
+      "hits": 11,
+      "micro": 0.7333,
+      "macro": 0.7778,
+      "hits_seed": 11,
+      "hits_hop": 0,
+      "misses": 4,
+      "hits_excerpt": 11,
+      "micro_excerpt": 0.7333,
+      "macro_excerpt": 0.7778,
+      "spans_matched": 26,
+      "span_hits": 21,
+      "span_recall": 0.8077,
+      "mean_candidates": 19.88,
+      "candidate_chars": 381348,
+      "chars_sent_ratio": 0.415,
+      "hops_kept": 1,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Termination": {
+      "pairs_scored": 5,
+      "pairs_no_gold": 11,
+      "gold_clauses": 6,
+      "hits": 4,
+      "micro": 0.6667,
+      "macro": 0.8,
+      "hits_seed": 4,
+      "hits_hop": 0,
+      "misses": 2,
+      "hits_excerpt": 4,
+      "micro_excerpt": 0.6667,
+      "macro_excerpt": 0.8,
+      "spans_matched": 7,
+      "span_hits": 5,
+      "span_recall": 0.7143,
+      "mean_candidates": 19.88,
+      "candidate_chars": 385956,
+      "chars_sent_ratio": 0.4201,
+      "hops_kept": 1,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Assignment & Control": {
+      "pairs_scored": 12,
+      "pairs_no_gold": 4,
+      "gold_clauses": 18,
+      "hits": 17,
+      "micro": 0.9444,
+      "macro": 0.9722,
+      "hits_seed": 17,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 15,
+      "micro_excerpt": 0.8333,
+      "macro_excerpt": 0.8889,
+      "spans_matched": 36,
+      "span_hits": 34,
+      "span_recall": 0.9444,
+      "mean_candidates": 19.88,
+      "candidate_chars": 375951,
+      "chars_sent_ratio": 0.4092,
+      "hops_kept": 1,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Restrictive Covenants": {
+      "pairs_scored": 8,
+      "pairs_no_gold": 8,
+      "gold_clauses": 16,
+      "hits": 16,
+      "micro": 1.0,
+      "macro": 1.0,
+      "hits_seed": 16,
+      "hits_hop": 0,
+      "misses": 0,
+      "hits_excerpt": 12,
+      "micro_excerpt": 0.75,
+      "macro_excerpt": 0.9,
+      "spans_matched": 26,
+      "span_hits": 26,
+      "span_recall": 1.0,
+      "mean_candidates": 19.88,
+      "candidate_chars": 370288,
+      "chars_sent_ratio": 0.403,
+      "hops_kept": 1,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     },
+     "Governing Law & Disputes": {
+      "pairs_scored": 13,
+      "pairs_no_gold": 3,
+      "gold_clauses": 13,
+      "hits": 12,
+      "micro": 0.9231,
+      "macro": 0.9231,
+      "hits_seed": 12,
+      "hits_hop": 0,
+      "misses": 1,
+      "hits_excerpt": 11,
+      "micro_excerpt": 0.8462,
+      "macro_excerpt": 0.8462,
+      "spans_matched": 13,
+      "span_hits": 12,
+      "span_recall": 0.9231,
+      "mean_candidates": 19.88,
+      "candidate_chars": 375024,
+      "chars_sent_ratio": 0.4082,
+      "hops_kept": 1,
+      "hops_from_cut_seeds": 0,
+      "share_hops_from_cut_seeds": 0.0
+     }
+    }
+   },
+   "hits_by_hop_kind": {
+    "all": {},
+    "by_regime": {}
    }
   }
  }

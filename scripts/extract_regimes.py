@@ -2,7 +2,7 @@
 
 Usage: uv run scripts/extract_regimes.py [--limit N] [--doc PREFIX ...] [--regime NAME ...]
                                          [--model ID] [--k 15] [--max-candidates 25]
-                                         [--dry-run]
+                                         [--hop-reserve 0] [--dry-run]
 
 Contracts: those matching --doc prefixes, else the first --limit in data/contracts.jsonl.
 Per (contract, regime): candidates (vector + graph, no LLM) -> one structured-output LLM
@@ -10,6 +10,9 @@ call -> deterministic validation -> PART_OF / RELIES_ON edges. Every raw respons
 cached in runs/llm_cache/<prompt_version>/<model>/, keyed by a hash of the exact input,
 so re-runs never pay twice. --dry-run builds candidates only (no API, no writes).
 Per-contract metrics -> runs/regime_metrics.csv; per-call log -> runs/regime_calls.jsonl.
+Both record the candidate config the call was built with (k, max_candidates, hop_reserve and
+its name, regimes.candidate_config_name). A --hop-reserve other than regimes.HOP_RESERVE
+was not adopted (ADR 0006) and is allowed only with --dry-run, so no edges come from it.
 """
 
 import argparse
@@ -110,14 +113,21 @@ def contract_metrics(driver, doc: str, model: str, pv: str, texts: dict[str, str
     return out
 
 
+def metrics_key(row: dict) -> tuple[str, str, str, str]:
+    """(doc_id, model, prompt_version, candidate_config). Rows written before the column
+    existed have candidate_config "" (unknown), so a new run never replaces them."""
+    return (row["doc_id"], row["model"], row["prompt_version"],
+            row.get("candidate_config") or "")
+
+
 def write_metrics(rows: list[dict]) -> None:
-    """Replace rows for the same (doc_id, model, prompt_version); keep the others."""
+    """Replace rows with the same metrics_key; keep the others."""
     existing = []
     if METRICS_CSV.exists():
         with METRICS_CSV.open(encoding="utf-8") as f:
             existing = list(csv.DictReader(f))
-    keys = {(r["doc_id"], r["model"], r["prompt_version"]) for r in rows}
-    merged = [r for r in existing if (r["doc_id"], r["model"], r["prompt_version"]) not in keys]
+    keys = {metrics_key(r) for r in rows}
+    merged = [r for r in existing if metrics_key(r) not in keys]
     merged += rows
     fields = list(rows[0])
     with METRICS_CSV.open("w", newline="", encoding="utf-8") as f:
@@ -134,8 +144,14 @@ def main() -> int:
     parser.add_argument("--model", default=None, help="default: LLM_MODEL from .env")
     parser.add_argument("--k", type=int, default=regimes.DEFAULT_K)
     parser.add_argument("--max-candidates", type=int, default=regimes.MAX_CANDIDATES)
+    parser.add_argument("--hop-reserve", type=int, default=regimes.HOP_RESERVE,
+                        help="candidate slots reserved for graph-hop clauses")
     parser.add_argument("--dry-run", action="store_true", help="candidates only: no API, no writes")
     args = parser.parse_args()
+    if args.hop_reserve != regimes.HOP_RESERVE and not args.dry_run:
+        sys.exit(f"--hop-reserve {args.hop_reserve} is not the adopted default "
+                 f"({regimes.HOP_RESERVE}, ADR 0006): allowed only with --dry-run, "
+                 "so no edges are written from it.")
 
     load_dotenv(ROOT / ".env")
     cfg = llm.config()
@@ -156,8 +172,12 @@ def main() -> int:
     uri = os.environ.get("NEO4J_URI", "bolt://localhost:7687")
     driver = GraphDatabase.driver(uri, auth=("neo4j", os.environ["NEO4J_PASSWORD"]))
     docs = select_docs(driver, args.doc, args.limit)
+    cand_cfg = {"k": args.k, "max_candidates": args.max_candidates,
+                "hop_reserve": args.hop_reserve}
+    cand_name = regimes.candidate_config_name(args.k, args.hop_reserve, args.max_candidates)
     print(f"model={model} prompt={pv} provider={cfg.provider} effort={cfg.effort} "
-          f"contracts={len(docs)} regimes={len(selected)} k={args.k}"
+          f"contracts={len(docs)} regimes={len(selected)} k={args.k} "
+          f"max_candidates={args.max_candidates} hop_reserve={args.hop_reserve}"
           f"{' DRY RUN' if args.dry_run else ''}")
 
     totals = {"calls": 0, "cached": 0, "errors": 0, "in": 0, "out": 0, "paid_in": 0, "paid_out": 0}
@@ -171,7 +191,8 @@ def main() -> int:
                          "rejected": 0, "relies_on": 0}
             for regime in selected:
                 cands, omitted = regimes.candidates(
-                    driver, doc, vectors[regime.name], args.k, args.max_candidates)
+                    driver, doc, vectors[regime.name], args.k, args.max_candidates,
+                    args.hop_reserve)
                 system, user = regimes.build_messages(regime, cands, prompt)
                 chars_sent = sum(len(c.excerpt) for c in cands)
                 share = chars_sent / total_chars if total_chars else 0
@@ -227,6 +248,7 @@ def main() -> int:
                 log.write(json.dumps({
                     "at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                     "doc_id": doc, "regime": regime.name, "model": model, "prompt_version": pv,
+                    **cand_cfg, "candidate_config": cand_name,
                     "cache": str(path.relative_to(ROOT)), "cached": cached,
                     "candidates": [c.section for c in cands], "omitted": omitted,
                     "chars_sent": chars_sent, "contract_chars": total_chars,
@@ -239,7 +261,8 @@ def main() -> int:
             m = contract_metrics(driver, doc, model, pv, texts)
             shares = doc_stats["call_shares"]
             metric_rows.append({
-                "doc_id": doc, "model": model, "prompt_version": pv, **m,
+                "doc_id": doc, "model": model, "prompt_version": pv,
+                "candidate_config": cand_name, **m,
                 "relies_on": doc_stats["relies_on"], "rejected": doc_stats["rejected"],
                 "call_errors": doc_stats["errors"],
                 "contract_chars": total_chars, "chars_sent": doc_stats["chars_sent"],

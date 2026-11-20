@@ -20,6 +20,9 @@ from clause_graph import evaluate as ev
 from clause_graph import queries, regimes
 
 ROOT = Path(__file__).resolve().parent.parent
+# Config name of a default run (no --k / --hop-reserve / --max-candidates).
+DEFAULT_CFG = regimes.candidate_config_name(
+    regimes.DEFAULT_K, regimes.HOP_RESERVE, regimes.MAX_CANDIDATES)
 
 
 def load_script(name):
@@ -136,6 +139,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(ec, "OUT_CSV", tmp_path / "runs" / "e.csv")
     monkeypatch.setattr(ec, "OUT_SUMMARY", tmp_path / "runs" / "s.json")
     monkeypatch.setattr(ec, "OUT_GOLD", tmp_path / "runs" / "g.csv")
+    monkeypatch.setattr(ec, "SWEEP_CSV", tmp_path / "runs" / "sweep_rows.csv")
+    monkeypatch.setattr(ec, "SWEEP_GOLD", tmp_path / "runs" / "sweep_gold.csv")
     monkeypatch.setattr(ec, "load_dotenv", lambda *a, **k: None)
     monkeypatch.setattr(ec, "embed_query", lambda text: [0.0, 1.0])
     monkeypatch.setattr(ec.GraphDatabase, "driver", staticmethod(lambda *a, **k: driver))
@@ -189,7 +194,7 @@ def test_pairs_without_gold_are_left_out_of_recall_and_counted(env):
     term = next(r for r in rows if r["doc_id"] == "DOC-B" and r["regime"] == "Termination")
     assert term["gold_clauses"] == "0" and term["recall"] == ""
     summary = json.loads((env.tmp / "runs" / "s.json").read_text())
-    by_regime = summary["by_k"][str(regimes.DEFAULT_K)]["by_regime"]
+    by_regime = summary["by_config"][DEFAULT_CFG]["by_regime"]
     assert by_regime["Termination"]["pairs_scored"] == 0
     assert by_regime["Termination"]["pairs_no_gold"] == 3
     assert by_regime["Termination"]["micro"] is None and by_regime["Termination"]["macro"] is None
@@ -222,7 +227,7 @@ def test_k_sweep_gives_one_row_set_per_k(env):
     for k in ("15", "25", "40"):
         assert len([r for r in rows if r["k"] == k]) == 3 * n_regimes
     summary = json.loads((env.tmp / "runs" / "s.json").read_text())
-    assert sorted(summary["by_k"]) == ["15", "25", "40"]
+    assert sorted(summary["by_config"]) == ["k15", "k25", "k40"]
     assert summary["config"]["k"] == [15, 25, 40]
     gold_rows = read_csv(env.tmp / "runs" / "g.csv")
     assert {"k15", "k25", "k40", "k15_excerpt"} <= set(gold_rows[0])
@@ -250,7 +255,7 @@ def test_gold_clauses_csv_keeps_provenance(env):
     row = next(r for r in g if r["doc_id"] == "DOC-B" and r["category"] == "anti_assignment")
     assert (row["uid"], row["section"], row["span_idx"], row["regime"]) == (
         "DOC-B#2", "2", "0", "Assignment & Control")
-    assert row["k%d" % regimes.DEFAULT_K] == "hop"
+    assert row[DEFAULT_CFG] == "hop"
     assert row["match"] == ev.CONTAINED
 
 
@@ -289,7 +294,7 @@ def test_health_groups(env):
 def test_misses_grouped_by_health(env):
     run(env)
     s = json.loads((env.tmp / "runs" / "s.json").read_text())
-    groups = s["by_k"][str(regimes.DEFAULT_K)]["by_health"]
+    groups = s["by_config"][DEFAULT_CFG]["by_health"]
     assert set(groups) == {"sections_0", "high_caps", "ok"}
     assert all(g["gold_clauses"] > 0 for g in groups.values())
     rows = read_csv(env.tmp / "runs" / "e.csv")
@@ -385,7 +390,7 @@ def summary_row(doc, regime, hits, gold, health="ok"):
     return {"doc_id": doc, "regime": regime, "health": health, "hits": hits,
             "gold_clauses": gold, "hits_seed": hits, "hits_hop": 0, "hits_excerpt": hits,
             "spans_matched": gold, "span_hits": hits, "candidate_clauses": 1,
-            "candidate_chars": 1, "contract_chars": 2}
+            "candidate_chars": 1, "contract_chars": 2, "hops_kept": 0, "hops_from_cut_seeds": 0}
 
 
 def test_per_contract_sums_each_doc_first():
@@ -416,14 +421,14 @@ def test_by_regime_macro_is_unchanged_per_contract(env):
 def test_summary_all_macro_matches_per_contract_definition(env):
     run(env)
     s = json.loads((env.tmp / "runs" / "s.json").read_text())
-    rows = [r for r in read_csv(env.tmp / "runs" / "e.csv") if r["k"] == str(regimes.DEFAULT_K)]
+    rows = [r for r in read_csv(env.tmp / "runs" / "e.csv") if r["config"] == DEFAULT_CFG]
     per_doc = {}
     for r in rows:
         acc = per_doc.setdefault(r["doc_id"], [0, 0])
         acc[0] += int(r["hits"])
         acc[1] += int(r["gold_clauses"])
     expect = round(sum(h / g for h, g in per_doc.values() if g) / len(per_doc), 4)
-    assert s["by_k"][str(regimes.DEFAULT_K)]["all"]["macro"] == expect
+    assert s["by_config"][DEFAULT_CFG]["all"]["macro"] == expect
 
 
 # ---------------------------------------------------------------- M2: spans in several clauses
@@ -449,7 +454,7 @@ def test_summary_has_span_level_recall_and_multi_clause(env):
     run(env)
     s = json.loads((env.tmp / "runs" / "s.json").read_text())
     assert s["spans"]["multi_clause"] == 0
-    k = s["by_k"][str(regimes.DEFAULT_K)]
+    k = s["by_config"][DEFAULT_CFG]
     for part in (k["all"], *k["by_regime"].values(), *k["by_health"].values(),
                  *k["by_category"].values()):
         assert {"spans_matched", "span_hits", "span_recall"} <= set(part)
@@ -472,7 +477,7 @@ def test_multi_clause_counted_in_summary(env, monkeypatch):
     run(env)
     s = json.loads((env.tmp / "runs" / "s.json").read_text())
     assert s["spans"]["multi_clause"] == 3  # the anti_assignment span of each contract
-    a = s["by_k"][str(regimes.DEFAULT_K)]["by_regime"]["Assignment & Control"]
+    a = s["by_config"][DEFAULT_CFG]["by_regime"]["Assignment & Control"]
     assert (a["gold_clauses"], a["spans_matched"], a["span_hits"]) == (6, 3, 3)
     assert a["hits"] == 3  # clause 4 is neither seed nor hop: clause level 0.5, span level 1.0
 
@@ -590,3 +595,182 @@ def test_gold_jsonl_is_git_ignored_and_eval_outputs_are_not():
     assert not ignored("runs/eval_candidates.csv")
     assert not ignored("runs/eval_candidates_summary.json")
     assert ignored("runs/eval_gold_clauses.csv")
+
+
+# ---------------------------------------------------------------- candidate-config sweep (ADR 0006)
+
+
+def test_baseline_is_the_7a_selection_and_its_name(env):
+    assert env.ec.BASELINE == (15, 0, 25)
+    assert (regimes.DEFAULT_K, regimes.HOP_RESERVE, regimes.MAX_CANDIDATES) == env.ec.BASELINE
+    assert regimes.candidate_config_name(*env.ec.BASELINE) == "k15" == DEFAULT_CFG
+
+
+def test_hop_kind_joins_non_seed_kinds(env):
+    assert env.ec.hop_kind(("seed",)) == "" and env.ec.hop_kind(()) == ""
+    assert env.ec.hop_kind(("definition", "reference_in", "seed")) == "definition+reference_in"
+
+
+def test_grid_gives_one_row_set_per_config_with_split_and_kept_counts(env):
+    args = ("--k", "15", "--k", "25", "--hop-reserve", "0", "--hop-reserve", "5")
+    run(env, *args)
+    first = outputs(env)
+    rows = read_csv(env.tmp / "runs" / "e.csv")
+    names = ["k15", "k15_r5", "k25", "k25_r5"]
+    n_regimes = len({r["regime"] for r in rows})
+    for n in names:
+        assert len([r for r in rows if r["config"] == n]) == 3 * n_regimes
+    for r in rows:
+        assert r["split"] == ev.split_of(r["doc_id"])
+        assert int(r["seeds_kept"]) + int(r["hops_kept"]) == int(r["candidate_clauses"])
+        assert {"omitted_seeds", "omitted_hops", "hop_reserve", "max_candidates",
+                "hops_from_cut_seeds"} <= set(r)
+    s = json.loads((env.tmp / "runs" / "s.json").read_text())
+    assert list(s["by_config"]) == names
+    assert s["config"]["hop_reserve"] == [0, 5]
+    assert s["by_config"]["k25_r5"]["hop_reserve"] == 5
+    assert set(s["by_config"]["k15"]["by_split"]) == {"dev"}  # DOC-A/B/C hash to dev
+    g = read_csv(env.tmp / "runs" / "g.csv")
+    assert {f"{n}{suffix}" for n in names for suffix in ("", "_excerpt", "_hop_kind")} <= set(g[0])
+    for n in ("e.csv", "s.json", "g.csv"):
+        (env.tmp / "runs" / n).unlink()
+    run(env, *args)
+    assert outputs(env) == first
+
+
+def test_hop_kind_is_logged_per_hit_and_summarised(env):
+    run(env)
+    g = read_csv(env.tmp / "runs" / "g.csv")
+    row = next(r for r in g if r["doc_id"] == "DOC-B" and r["category"] == "anti_assignment")
+    assert (row[DEFAULT_CFG], row[f"{DEFAULT_CFG}_hop_kind"]) == ("hop", "reference_out")
+    seed = next(r for r in g if r["doc_id"] == "DOC-B" and r["category"] == "governing_law")
+    assert (seed[DEFAULT_CFG], seed[f"{DEFAULT_CFG}_hop_kind"]) == ("seed", "")
+    s = json.loads((env.tmp / "runs" / "s.json").read_text())["by_config"][DEFAULT_CFG]
+    assert s["hits_by_hop_kind"]["all"] == {"reference_out": s["all"]["hits_hop"]}
+    assert s["hits_by_hop_kind"]["by_regime"] == {"Assignment & Control": {"reference_out": 3}}
+
+
+def test_hops_from_cut_seeds_counted_per_row_and_summarised(env):
+    """Seeds are clauses 1 and 3; clause 2 is a hop of seed 3. With one slot reserved for
+    a hop and a cap of 1, clause 2 is kept and its only source seed is cut."""
+    run(env, "--hop-reserve", "0", "--hop-reserve", "1", "--max-candidates", "1",
+        "--max-candidates", "2")
+    rows = read_csv(env.tmp / "runs" / "e.csv")
+    by = {}
+    for r in rows:
+        by.setdefault(r["config"], set()).add((r["hops_kept"], r["hops_from_cut_seeds"]))
+    assert by == {"k15_c1": {("0", "0")}, "k15_r1_c1": {("1", "1")},
+                  "k15_c2": {("0", "0")}, "k15_r1_c2": {("1", "1")}}
+    s = json.loads((env.tmp / "runs" / "s.json").read_text())["by_config"]
+    a = s["k15_r1_c1"]["all"]
+    assert (a["hops_from_cut_seeds"], a["share_hops_from_cut_seeds"]) == (a["hops_kept"], 1.0)
+    assert s["k15_c2"]["all"]["share_hops_from_cut_seeds"] is None  # no hops kept
+
+
+def test_other_caps_are_report_only_and_never_chosen(env):
+    out = env.tmp / "runs" / "sweep.json"
+    run(env, "--k", "15", "--hop-reserve", "0", "--hop-reserve", "5",
+        "--max-candidates", "25", "--max-candidates", "30", "--sweep-out", str(out))
+    sw = json.loads(out.read_text())
+    assert sw["baseline"] == "k15"
+    assert sw["report_only"] == ["k15_c30", "k15_r5_c30"]
+    assert set(sw["grid"]) == {"k15", "k15_r5", "k15_c30", "k15_r5_c30"}
+    table = {t["config"]: t for t in sw["decision"]["table"]}
+    assert table["k15_c30"]["fails"][0] == "report_only"
+    assert sw["decision"]["chosen"] == "k15" and not sw["adopted"]
+    assert "hops_from_cut_seeds" in sw["grid"]["k15_r5"]["all"]
+    assert "Lorem" not in out.read_text() and GOLD_TAIL not in out.read_text()
+
+
+def test_sweep_does_not_overwrite_the_7a_outputs(env):
+    run(env, "--k", "15", "--k", "25")
+    before = outputs(env)
+    out = env.tmp / "runs" / "sweep.json"
+    run(env, "--k", "15", "--k", "25", "--hop-reserve", "0", "--hop-reserve", "5",
+        "--sweep-out", str(out))
+    assert outputs(env) == before
+    rows = read_csv(env.tmp / "runs" / "sweep_rows.csv")
+    assert {r["config"] for r in rows} == {"k15", "k15_r5", "k25", "k25_r5"}
+    gold = read_csv(env.tmp / "runs" / "sweep_gold.csv")
+    assert {"k25_r5", "k25_r5_hop_kind"} <= set(gold[0])
+    assert set(json.loads(out.read_text())["grid"]) == {"k15", "k15_r5", "k25", "k25_r5"}
+
+
+def test_sweep_needs_the_baseline_in_the_grid(env):
+    with pytest.raises(SystemExit):
+        run(env, "--k", "25", "--sweep-out", str(env.tmp / "runs" / "sweep.json"))
+
+
+def sweep_summary(names, dev_hits):
+    """by_config summary with just what sweep() reads."""
+    by = {}
+    for name, (hits, ro) in zip(names, dev_hits):
+        d = {"hits": hits, "gold_clauses": 100, "micro": hits / 100, "candidate_chars": 10,
+             "chars_sent_ratio": 0.3, "mean_candidates": 15.0}
+        by[name] = {"k": 15, "hop_reserve": 0, "max_candidates": 25, "report_only": ro,
+                    "all": {"hits": hits, "micro_excerpt": 0.5, "span_recall": 0.5,
+                            "hits_hop": 1, "chars_sent_ratio": 0.3, "mean_candidates": 15.0},
+                    "by_regime": {}, "by_health": {}, "by_split": {"dev": d, "test": {"hits": 5}},
+                    "by_split_regime": {"dev": {"A": {"hits": hits}}}, "hits_by_hop_kind": {}}
+    return {"config": {k: None for k in ("k", "hop_reserve", "max_candidates", "candidate_chars",
+                                         "contracts", "embed_model", "split")},
+            "by_config": by}
+
+
+def test_sweep_never_adopts_or_checks_a_report_only_winner(env):
+    s = sweep_summary(["k15", "k25_r5", "k40_r5_c30"], [(50, False), (50, False), (90, True)])
+    out = env.ec.sweep(s, "k15")
+    assert out["decision"]["best"] == "k15" and out["adoption_check"] is None
+    assert not out["adopted"] and out["report_only"] == ["k40_r5_c30"]
+
+
+def test_sweep_adopted_needs_dev_gain_and_adoption_check(env):
+    out = env.ec.sweep(sweep_summary(["k15", "k25_r5"], [(50, False), (60, False)]), "k15")
+    assert out["decision"]["adopt"] and out["adoption_check"]["config"] == "k25_r5"
+    assert out["adopted"] == out["adoption_check"]["pass"]  # by_regime etc. are empty here
+
+
+def test_sweep_json_is_committed_like_the_other_eval_outputs():
+    r = subprocess.run(["git", "check-ignore", "-v", "runs/eval_candidates_sweep.json"],
+                       cwd=ROOT, capture_output=True, text=True)
+    assert r.returncode != 0 or r.stdout.split(":", 2)[2].lstrip("0123456789:").startswith("!")
+    for path in ("runs/eval_candidates_sweep_rows.csv", "runs/eval_gold_clauses_sweep.csv"):
+        assert subprocess.run(["git", "check-ignore", "-q", path], cwd=ROOT).returncode == 0
+
+
+# ---------------------------------------------------------------- committed sweep artefact
+
+SWEEP = ROOT / "runs" / "eval_candidates_sweep.json"
+
+
+@pytest.fixture(scope="module")
+def sweep_json():
+    if not SWEEP.exists():
+        pytest.skip("runs/eval_candidates_sweep.json missing")
+    return json.loads(SWEEP.read_text())
+
+
+def test_sweep_grid_uses_canonical_names(sweep_json):
+    want = {regimes.candidate_config_name(k, r, c)
+            for k in (15, 25, 40) for r in (0, 5, 10) for c in (25, 30)}
+    assert set(sweep_json["grid"]) == want and len(want) == 18
+    for name, c in sweep_json["grid"].items():
+        assert regimes.candidate_config_name(c["k"], c["hop_reserve"], c["max_candidates"]) == name
+
+
+def test_sweep_decision_reproduces_from_its_own_grid(sweep_json):
+    """Re-run decide() on the stored per-config dev numbers: same table, same verdict."""
+    g = sweep_json["grid"]
+    cfgs = {n: {"report_only": c["report_only"],
+                "dev": {**c["by_split"]["dev"], "by_regime": c["by_split_regime"]["dev"]}}
+            for n, c in g.items()}
+    d = ev.decide(cfgs, sweep_json["baseline"])
+    assert d == sweep_json["decision"]
+    assert all(t["config"].endswith("_c30") == t["report_only"] for t in d["table"])
+    assert not any(t["eligible"] for t in d["table"] if t["report_only"])
+    assert d["chosen"] == "k15" and sweep_json["adopted"] is False
+
+
+def test_sweep_json_has_no_text_fields(sweep_json):
+    blob = SWEEP.read_text()
+    assert '"text"' not in blob and '"excerpt"' not in blob
